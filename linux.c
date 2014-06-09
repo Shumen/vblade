@@ -207,6 +207,7 @@ getsize(int fd)
 #define PACKET_TAG(pd)	(*(ulong *)&((const Aoehdr *)(pd))->tag[0])
 #define OFFSET_PTR(ptr, adding) (((void *)(ptr)) + (adding))
 #define ROLL_PTR(ptr, adding, base, limit) if (limit==(ptr=OFFSET_PTR(ptr, adding))) ptr = base; 
+#define ROLL_PTR_CHECK_EXIT(ptr, adding, base, limit, exit_expression, exit_value) if (limit==(ptr=OFFSET_PTR(ptr, adding))) {ptr = base; if (exit_expression) return exit_value;  }
 
 
 static struct PacketsRing
@@ -249,7 +250,7 @@ poll_rx_ring_socket(struct tpacket_hdr *header)
 	}
 }
 
-static void 
+static uchar
 roll_rx_ring_with_tags_tracking(uchar *buf) 
 {
 	struct tpacket_hdr *rx_base = (struct tpacket_hdr *) rx_ring.ring;
@@ -359,16 +360,17 @@ roll_rx_ring_with_tags_tracking(uchar *buf)
 		fpi->mask = -2;
 		rx->tp_status = 0;
 		ROLL_PTR(fpi, sizeof(struct FwdPacketInfo), fpi_base, fpi_limit);
-		ROLL_PTR(rx, rx_ring.frame_size, rx_base, rx_limit);
+		ROLL_PTR_CHECK_EXIT(rx, rx_ring.frame_size, rx_base, rx_limit, (tags_tracking==TAGS_ANY), 1);
 
 		//both rings must be rolled synchronously
 		assert( (fpi==fpi_base && rx==rx_base) || (fpi!=fpi_base && rx!=rx_base));
 	}
+	return 0;
 }
 
 
 
-static void 
+static uchar
 roll_rx_ring_no_tags_tracking(uchar *buf) 
 {
 	struct tpacket_hdr *rx_base = (struct tpacket_hdr *) rx_ring.ring;
@@ -397,8 +399,9 @@ roll_rx_ring_no_tags_tracking(uchar *buf)
 			}
 		}
 		rx->tp_status = 0;
-		ROLL_PTR(rx, rx_ring.frame_size, rx_base, rx_limit);
+		ROLL_PTR_CHECK_EXIT(rx, rx_ring.frame_size, rx_base, rx_limit, (tags_tracking!=TAGS_ANY), 1);
 	}
+	return 0;
 }
 
 
@@ -456,10 +459,17 @@ rxring_deinit()
 void 
 rxring_roll(uchar *buf) 
 {
-	if (tags_tracking!=TAGS_ANY)
-		roll_rx_ring_with_tags_tracking(buf);
-	else
-		roll_rx_ring_no_tags_tracking(buf);
+	for (;;) {
+		if (tags_tracking!=TAGS_ANY) {
+			if (roll_rx_ring_with_tags_tracking(buf)==0) break;
+		}
+		else {
+			if (roll_rx_ring_no_tags_tracking(buf)==0) break;
+		}
+#ifdef KEEP_STATS
+		printf("tags tracking switched to %d\n", tags_tracking);
+#endif
+	}
 }
 
 int 
