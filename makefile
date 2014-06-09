@@ -10,7 +10,7 @@ mandir = ${sharedir}/man
 libdir=${prefix}/lib
 includedir=${prefix}/include
 
-O=tagring.o bfdio.o aoe.o bpf.o ${PLATFORM}.o ata.o dat.o
+O=tagring.o bfdio.o doaoe.o aoe.o bpf.o ${PLATFORM}.o ata.o dat.o
 CFLAGS += -Wall -g -O2 -I${includedir}
 CC = gcc
 L=
@@ -26,6 +26,9 @@ dat.o : dat.c config.h dat.h
 	${CC} ${CFLAGS} -c $<
 
 aoe.o : aoe.c config.h dat.h fns.h makefile
+	${CC} ${CFLAGS} -c $<
+
+doaoe.o : doaoe.c config.h dat.h fns.h makefile
 	${CC} ${CFLAGS} -c $<
 
 tagring.o : tagring.c config.h dat.h fns.h makefile

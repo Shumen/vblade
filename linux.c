@@ -32,8 +32,6 @@
 int	getindx(int, char *);
 int	getea(int, char *, uchar *);
 
-
-
 int
 dial(char *eth, int bufcnt)		// get us a raw connection to an interface
 {
@@ -66,13 +64,16 @@ dial(char *eth, int bufcnt)		// get us a raw connection to an interface
 	free_bpf_program(bpf_program);
 
 	n = getmtu(s, eth);
-        n*= bufcnt;
+    n*= bufcnt;
+
 	if (setsockopt(s, SOL_SOCKET, SO_SNDBUF, &n, sizeof(n)) < 0)
 		perror("setsockopt SOL_SOCKET, SO_SNDBUF");
+
 #ifndef SOCK_RXRING
 	if (setsockopt(s, SOL_SOCKET, SO_RCVBUF, &n, sizeof(n)) < 0)
 		perror("setsockopt SOL_SOCKET, SO_RCVBUF");
 #endif
+
 	return s;
 }
 
@@ -208,8 +209,6 @@ getsize(int fd)
 #define ROLL_PTR(ptr, adding, base, limit) if (limit==(ptr=OFFSET_PTR(ptr, adding))) ptr = base; 
 
 
-void doaoe(Aoehdr *p, Aoehdr *op, int n);
-
 static struct PacketsRing
 {
 	int frames;
@@ -236,7 +235,7 @@ poll_rx_ring_socket(struct tpacket_hdr *header)
 		if (r==0) {
 			bfd_idle_elapsed(idle_hint);
 #ifdef KEEP_STATS
-			if (rx_tags_tracking || write_tags_tracking)
+			if (tags_tracking!=TAGS_ANY)
 				printf("skipped_writes=%llu skipped_packets=%llu\n", skipped_writes, skipped_packets);
 #endif
 		}
@@ -351,7 +350,7 @@ roll_rx_ring_with_tags_tracking(uchar *buf)
                if ((rand()%POISON_RECV)!=0)
 #endif
                 {
-					if (write_tags_tracking)
+					if (tags_tracking==TAGS_INC_LE || tags_tracking==TAGS_INC_BE)
 						tagring_select(mask);
 					doaoe((Aoehdr *)data, (Aoehdr *)buf, len);
                 }
@@ -392,7 +391,7 @@ roll_rx_ring_no_tags_tracking(uchar *buf)
 			if ((rand()%POISON_RECV)!=0)
 #endif
 			if (mask>=0) {
-				if (write_tags_tracking)
+				if (tags_tracking==TAGS_INC_LE || tags_tracking==TAGS_INC_BE)
 					tagring_select(mask);
 				doaoe((Aoehdr *)data, (Aoehdr *)buf, len);
 			}
@@ -457,7 +456,7 @@ rxring_deinit()
 void 
 rxring_roll(uchar *buf) 
 {
-	if (rx_tags_tracking)
+	if (tags_tracking!=TAGS_ANY)
 		roll_rx_ring_with_tags_tracking(buf);
 	else
 		roll_rx_ring_no_tags_tracking(buf);

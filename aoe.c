@@ -13,20 +13,12 @@
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <sys/file.h>
+#include <endian.h>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include "dat.h"
 #include "fns.h"
 #include <netinet/if_ether.h>
-
-static void 
-sfd_putpkt_or_die(uchar *data, int len)
-{
-	if (putpkt(sfd, data, len) == -1) {
-		perror("sfd_putpkt_or_die: write to network");
-		grace_exit(1);
-	}
-}
 
 void
 aoead(int fd)	// advertise the virtual blade
@@ -62,327 +54,6 @@ aoead(int fd)	// advertise the virtual blade
 			perror("putpkt aoe id");
 	}
 }
-
-int
-isbcast(uchar *ea)
-{
-	uchar *b = (uchar *)"\377\377\377\377\377\377";
-
-	return memcmp(ea, b, 6) == 0;
-}
-
-long long
-getlba(uchar *p)
-{
-	vlong v;
-	int i;
-
-	v = 0;
-	for (i = 0; i < 6; i++)
-		v |= (vlong)(*p++) << i * 8;
-	return v;
-}
-
-void
-aoeata(Ata *p, Ata *op, int pktlen, uchar dup)	// do ATA reqeust
-{
-	Ataregs r;
-	int n, len = 60;
-	r.cmd = p->cmd;
-
-	if (r.cmd != 0xec && !rrok(p->h.src)) {
-		op->h.flags |= Error;
-		op->h.error = Res;	
-		op->cmd = ERR;
-		sfd_putpkt_or_die((uchar *)op, len);
-		return;
-	}
-
-	if (r.cmd==0x30 || r.cmd==0x34) {
-#ifdef ASSUME_WRITE_SUCCESS
-		op->cmd = DRDY;
-		sfd_putpkt_or_die((uchar *)op, len);
-		if (dup) {
-#else
-		if (dup) {
-			op->cmd = DRDY;
-			sfd_putpkt_or_die((uchar *)op, len);
-#endif
-#ifdef KEEP_STATS
-			++skipped_writes;
-#endif		
-			return;
-		}
-		op->cmd = r.cmd;
-	}
-
-	r.lba = getlba(p->lba);
-	r.sectors = p->sectors;
-	r.feature = p->err;
-
-	if (atacmd(&r, (uchar *)(p+1), (uchar *)(op+1), pktlen - sizeof(*p)) < 0) {
-#ifdef ASSUME_WRITE_SUCCESS
-		if (r.cmd==0x30 || r.cmd==0x34) {
-			perror("Write failed, while success was assumed. Exiting to avoid data corruption.\n");
-			grace_exit(errno);
-			return;
-		}		
-#endif
-		op->h.flags |= Error;
-		op->h.error = BadArg;
-		sfd_putpkt_or_die((uchar *)op, len);
-		return;
-	}
-
-#ifdef ASSUME_WRITE_SUCCESS
-	if (r.cmd==0x30 || r.cmd==0x34) {
-		return;
-	}		
-#endif
-
-	if (!(op->aflag & Write))
-	if ((n = op->sectors)) {
-		n -= r.sectors;
-		len = sizeof (Ata) + (n*512);
-	}
-	op->sectors = r.sectors;
-	op->err = r.err;
-	op->cmd = r.status;
-	sfd_putpkt_or_die((uchar *)op, len);
-}
-
-#define QCMD(x) ((x)->vercmd & 0xf)
-
-// yes, this makes unnecessary copies.
-
-int
-confcmd(Conf *p, int payload)	// process conf request
-{
-	int len;	
-	len = ntohs(p->len);
-	if (QCMD(p) != Qread)
-	if (len > Nconfig || len > payload)
-		return 0;	// if you can't play nice ...
-	switch (QCMD(p)) {
-	case Qtest:
-		if (len != nconfig)
-			return 0;
-		// fall thru
-	case Qprefix:
-		if (len > nconfig)
-			return 0;
-		if (memcmp(config, p->data, len))
-			return 0;
-		// fall thru
-	case Qread:
-		break;
-	case Qset:
-		if (nconfig)
-		if (nconfig != len || memcmp(config, p->data, len)) {
-			p->h.flags |= Error;
-			p->h.error = ConfigErr;
-			break;
-		}
-		// fall thru
-	case Qfset:
-		nconfig = len;
-		memcpy(config, p->data, nconfig);
-		break;
-	default:
-		p->h.flags |= Error;
-		p->h.error = BadArg;
-	}
-	update_maxscnt();
-	memmove(p->data, config, nconfig);
-	p->len = htons(nconfig);
-	p->bufcnt = htons(bufcnt);
-	p->scnt = maxscnt;
-	p->firmware = htons(FWV);
-	p->vercmd = 0x10 | QCMD(p);	// aoe v.1
-	return nconfig + sizeof *p - sizeof p->data;
-}
-
-static int
-aoesrr(Aoesrr *sh, int len)
-{
-	uchar *m, *e;
-	int n;
-
-	e = (uchar *) sh + len;
-	m = (uchar *) sh + Nsrrhdr;
-	switch (sh->rcmd) {
-	default:
-e:		sh->h.error = BadArg;
-		sh->h.flags |= Error;
-		break;
-	case 1:	// set
-		if (!rrok(sh->h.src)) {
-			sh->h.error = Res;
-			sh->h.flags |= Error;
-			break;
-		}
-	case 2:	// force set
-		n = sh->nmacs * Alen;
-		if (e < m + n)
-			goto e;
-		nsrr = sh->nmacs;
-		memmove(srr, m, n);
-	case 0:	// read
-		break;
-	}
-	sh->nmacs = nsrr;
-	n = nsrr * Alen;
-	memmove(m, srr, n);
-	return Nsrrhdr + n;
-}
-
-static int
-addmask(uchar *ea)
-{
-	uchar *p, *e;
-
-	p = masks;
-	e = p + nmasks;
-	for (; p<e; p +=Alen) {
-		if (!memcmp(p, ea, Alen)) {
-			if (write_tags_tracking)
-				tagring_reset_id((p - masks)/Alen);
-			return 2;
-		}
-	}
-
-	if (nmasks >= Nmasks)
-		return 0;
-
-	memmove(p, ea, Alen);
-	if (write_tags_tracking)
-		tagring_reset_id(nmasks);
-
-	nmasks++;
-	return 1;
-}
-
-static void
-rmmask(uchar *ea)
-{
-	uchar *p, *e;
-
-	p = masks;
-	e = p + nmasks;
-	for (; p<e; p+=6)
-		if (!memcmp(p, ea, 6)) {
-			memmove(p, p+6, e-p-6);
-			nmasks--;
-			return;
-		}
-}
-
-static int
-aoemask(Aoemask *mh, int len)
-{
-	Mdir *md, *mdi, *mde;
-	uchar *e;
-	int i, n;
-
-	n = 0;
-	e = (uchar *) mh + len;
-	md = mdi = (Mdir *) ((uchar *)mh + Nmaskhdr);
-	switch (mh->cmd) {
-	case Medit:
-		mde = md + mh->nmacs;
-		for (; md<mde; md++) {
-			switch (md->cmd) {
-			case MDdel:
-				rmmask(md->mac);
-				continue;
-			case MDadd:
-				if (addmask(md->mac))
-					continue;
-				mh->merror = MEfull;
-				mh->nmacs = md - mdi;
-				goto e;
-			case MDnop:
-				continue;
-			default:
-				mh->merror = MEbaddir;
-				mh->nmacs = md - mdi;
-				goto e;
-			}
-		}
-		// success.  fall thru to return list
-	case Mread:
-		md = mdi;
-		for (i=0; i<nmasks; i++) {
-			md->res = md->cmd = 0;
-			memcpy(md->mac, &masks[i*6], 6);
-			md++;
-		}
-		mh->merror = 0;
-		mh->nmacs = nmasks;
-		n = sizeof *md * nmasks;
-		break;
-	default:
-		mh->h.flags |= Error;
-		mh->h.error = BadArg;
-	}
-e:	return n + Nmaskhdr;
-}
-
-void
-doaoe(Aoehdr *p, Aoehdr *op, int n)
-{
-	int len;
-	const uchar cmd = p->cmd;
-	uchar dup;
-	memcpy(op->dst, p->src, 6);
-	memcpy(op->src, mac, 6);
-	op->maj = shelf_net;
-	op->min = slot;
-
-	if (p!=op) {
-		op->type = p->type;
-		op->flags = p->flags | Resp;
-		op->error = p->error;
-		op->cmd = cmd;
-		memcpy(op->tag, p->tag, sizeof(op->tag));
-		memcpy(op+1, p+1, (cmd!=ATAcmd)  ? 
-			n - sizeof(Aoehdr) : sizeof(Ata) - sizeof(Aoehdr));
-	}
-	else
-		op->flags|= Resp;
-
-	dup = (write_tags_tracking && tagring_process(*(unsigned long *)&p->tag[0]));
-	switch (cmd) {
-	case ATAcmd:
-		if (n >= Natahdr)
-			aoeata((Ata*)p, (Ata*)op, n, dup);
-		return;
-
-	case Config:
-		if (n < Ncfghdr)
-			return;
-		len = confcmd((Conf *)op, n);		
-		break;
-	case Mask:
-		if (n < Nmaskhdr)
-			return;
-		len = aoemask((Aoemask *)op, n);
-		break;
-	case Resrel:
-		if (n < Nsrrhdr)
-			return;
-		len = aoesrr((Aoesrr *)op, n);
-		break;
-	default:
-		op->error = BadCmd;
-		op->flags |= Error;
-		len = n;
-		break;
-	}
-	if (len > 0)
-		sfd_putpkt_or_die((uchar *)op, len);
-}
-
 
 void 
 handle_signal(int signal)
@@ -443,13 +114,13 @@ aoe(void)
 		p = (Aoehdr *) buf;
 		int m = packet_check(p, n);
 		if (m>=0) {
-			if (write_tags_tracking) 
+			if (tags_tracking==TAGS_INC_LE || tags_tracking==TAGS_INC_BE) 
 				tagring_select(m);
 			doaoe(p, (Aoehdr *)buf, n);
 		}
 
 #ifdef KEEP_STATS
-		if (write_tags_tracking && skipped_writes) {
+		if (tags_tracking!=TAGS_ANY && skipped_writes) {
 			time_t tm_now = time(0); 
 			if ((tm_stats+60)<tm_now || tm_now<tm_stats) {
 				printf("skipped_writes=%llu\n", skipped_writes);
@@ -472,12 +143,6 @@ usage(void)
 	fprintf(stderr, "options:\n");
 	fprintf(stderr, " -b  specify socket x-fer buffers in MTU units (linux only)\n");
 	fprintf(stderr, " -r  give only read access to disk image\n");
-#ifdef SOCK_RXRING
-	fprintf(stderr, " -t  RX tags tracking (better performance with compatible client)\n");
-#else
-	fprintf(stderr, " -t  RX tags tracking - not supported in this build\n");
-#endif
-	fprintf(stderr, " -T  WRITE tags tracking (better data integrity but INCOMPATIBLE CLIENT CAN TRASH DATA!)\n");
 	fprintf(stderr, " -m  restrict accessing disk only from specified mac address(es)\n");
 	
 	
@@ -571,39 +236,47 @@ main(int argc, char **argv)
 	skipped_packets = 0;
 #endif
 	int ch, omode = O_NOATIME, readonly = 0;
+#ifdef USE_AIO
+# ifdef O_DIRECT
+	omode |= O_DIRECT;
+# endif
+# ifdef O_DSYNC 
+	omode |= O_DSYNC;
+# else
+	omode |= O_SYNC;
+# endif
+#endif
+
 	bufcnt = Bufcount;
 	setbuf(stdin, NULL);
 	progname = *argv;
-	rx_tags_tracking = 0;
-	write_tags_tracking = 0;
+	tags_tracking = TAGS_ANY;
 	bfd_init(); //do it right now so we can call bfd_flush anytime
-	while ((ch = getopt(argc, argv, "b:dsrm:tT")) != -1) {
+	while ((ch = getopt(argc, argv, "b:dsrm:")) != -1) {
 		switch (ch) {
-		case 't':
-#ifdef SOCK_RXRING
-			rx_tags_tracking = 1;
-#else
-			printf("RX tags tracking supported only in SOCK_RXRING -enabled build\n");
-#endif
-			break;
-		case 'T':
-			write_tags_tracking = 1;
-			break;
 		case 'b':
 			bufcnt = atoi(optarg);
 			break;
 		case 'd':
 #ifdef O_DIRECT
+# ifdef USE_AIO
+			printf("Direct mode implied by AIO\n");
+# else
 			omode |= O_DIRECT;
+# endif
 #else
 			printf("Direct IO is not supported in this build\n");
 #endif
 			break;
 		case 's':
-#ifdef O_DSYNC 
-			omode |= O_DSYNC;
+#ifdef USE_AIO
+			printf("Synchronous mode implied by AIO\n");
 #else
+# ifdef O_DSYNC 
+			omode |= O_DSYNC;
+# else
 			omode |= O_SYNC;
+# endif
 #endif
 			break;
 		case 'r':
@@ -644,15 +317,24 @@ main(int argc, char **argv)
 	sfd = dial(ifname, bufcnt);
 	getea(sfd, ifname, mac);
 	update_maxscnt();
-	printf("pid %ld: e%d.%d, %lld sectors %s, maxscnt: %u%s%s\n",
+	printf("pid %ld: e%d.%d, %lld sectors%s%s%s, maxscnt: %u\n",
 		(long) getpid(), shelf, slot, size,
-		readonly ? "O_RDONLY" : "O_RDWR",  maxscnt,
-		rx_tags_tracking ? ", RX tags tracking" : "",
-		write_tags_tracking ? ", WRITE tags tracking (ARE YOU SURE?!)" : "");
-#ifdef USE_AIO
-	if ((omode&O_DIRECT)!=O_DIRECT)
-		printf("AIO without -d option (O_DIRECT) is near to useless!\n");
+		readonly ? " O_RDONLY" : " O_RDWR",  
+
+#ifdef O_DIRECT
+		(omode&O_DIRECT) ? " O_DIRECT" : "",
+#else
+		"",
 #endif
+
+#ifdef O_DSYNC 
+		(omode&O_DSYNC) ? " O_DSYNC" : "",
+#else
+		(omode&O_SYNC) ? " O_SYNC" : "",
+#endif
+
+		maxscnt);
+
 	fflush(stdout);
 	bfd_init();
 	atainit();

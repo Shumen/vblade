@@ -13,14 +13,18 @@ void	aoerequest(int, int, vlong, int, uchar *, int);
 int	maskcheck(uchar *);
 int	rrok(uchar *);
 
+
+// doaoe.c
+
+void doaoe(Aoehdr *p, Aoehdr *op, int n);
+
+
 // ata.c
 
 void	atainit(void);
-int	atacmd(Ataregs *, uchar *, uchar *, int);
-int	ata_idle_hint();
-void	ata_idle(int t);
-void	ata_after_party();
-
+void	atactl(Ataregs *p, uchar *odp);
+void	ataread(Ataregs *p, uchar *odp);
+void	atawrite(Ataregs *p, uchar *dp);
 
 // bpf.c
 

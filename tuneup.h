@@ -24,10 +24,10 @@
 
 //Following option slightly improves write performance by assuming 
 //valid write operation always success and thus sending reply to
-//client with minimal delay
+//client with minimal delay even client didn't specify Async write
 //BTW if any write operation will fail - AoEde will instantly exit 
 //to minimize risk of data corruption
-#define ASSUME_WRITE_SUCCESS
+#define FORCE_ASYNC_WRITES
 
 #ifdef __linux__
 //Try to use PACKET_RX_RING to receive data instead of read() call

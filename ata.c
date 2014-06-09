@@ -94,25 +94,12 @@ atainit(void)
  * with LBA 28 you shouldn't see an LBA of all ones.  Still, we don't
  * check for that.
  */
-int
-atacmd(Ataregs *p, uchar *dp, uchar *odp, int payload) // do the ata cmd
+void
+atactl(Ataregs *p, uchar *odp) 
 {
-	vlong lba;
 	ushort *ip;
-	int n;
-	enum { MAXLBA28SIZE = 0x0fffffff };	
-
-	p->status = 0;
 	switch (p->cmd) {
-	default:
-		p->status = DRDY | ERR;
-		p->err = ABRT;
-		return 0;
-	case 0xe7:		// flush cache
-		return 0;
 	case 0xec:		// identify device
-		if (p->sectors != 1 || maxscnt<1)
-			return -1;
 		memcpy(odp, ident, 512);
 		ip = (ushort *)odp;
 		if (size & ~MAXLBA28SIZE)
@@ -121,57 +108,52 @@ atacmd(Ataregs *p, uchar *dp, uchar *odp, int payload) // do the ata cmd
 			setlba28(ip, size);
 		setlba48(ip, size);
 		p->err = 0;
-		p->status = DRDY;
 		p->sectors = 0;
-		return 0;
+		p->status = DRDY;
+		break;
+
+	case 0xe7:		// flush cache
+		p->err = 0;
+		p->status = DRDY;
+		break;
+
 	case 0xe5:		// check power mode
 		p->err = 0;
 		p->sectors = 0xff; // the device is active or idle
 		p->status = DRDY;
-		return 0;
-
-	case 0x30:		// write sectors
-	case 0x20:		// read sectors
-		lba = p->lba & MAXLBA28SIZE;
 		break;
 
-	case 0x34:		// write sectors ext
-	case 0x24:		// read sectors ext
-		lba = p->lba & 0x0000ffffffffffffLL;	// full 48
-		break;
-	}
-
-	// we ought not be here unless we are a read/write
-
-
-	if (lba + p->sectors > size) {
-		p->err = IDNF;
-		p->status = DRDY | ERR;
-		p->lba = lba;
-		return 0;
-	}
-	if (p->cmd == 0x20 || p->cmd == 0x24) {
-		if (maxscnt < p->sectors)
-			return -1;
-		n = bfd_getsec(odp, lba, p->sectors);
-	} else {
-		// packet should be big enough to contain the data
-		if (payload < 512 * p->sectors)
-		{
-			printf("bad write packet\n");
-			return -1;
-		}
-		n = bfd_putsec(dp, lba, p->sectors);
-	}
-	n /= 512;
-	if (n != p->sectors) {
+	default:
 		p->err = ABRT;
-		p->status = ERR;
-	} else
+		p->status = DRDY | ERR;
+	}
+}
+
+static inline void 
+afterio(Ataregs *p, int n) {
+	n /= 512;
+	if ((p->sectors -= n) != 0) {
+		p->err = ABRT;
+		p->status = ERR | DRDY;
+	} else {
 		p->err = 0;
-	p->status |= DRDY;
-	p->lba += n;
-	p->sectors -= n;
-	return 0;
+		p->status = DRDY;
+	}
+
+//not used by caller	p->lba += n;
+}
+
+void
+ataread(Ataregs *p, uchar *odp) 
+{
+	int n = bfd_getsec(odp, p->lba, p->sectors);
+	afterio(p, n);
+}
+
+void
+atawrite(Ataregs *p, uchar *dp)
+{
+	int n = bfd_putsec(dp, p->lba, p->sectors);
+    afterio(p, n);
 }
 

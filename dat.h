@@ -40,6 +40,8 @@ typedef struct Ataregs Ataregs;
 typedef struct Mdir Mdir;
 typedef struct Aoemask Aoemask;
 typedef struct Aoesrr Aoesrr;
+typedef struct Aoeextensions Aoeextensions;
+typedef struct AtaCoalescedRead AtaCoalescedRead;
 
 struct Ataregs
 {
@@ -47,7 +49,6 @@ struct Ataregs
 	uchar	cmd;
 	uchar	status;
 	uchar	err;
-	uchar	feature;
 	uchar	sectors;
 };
 
@@ -62,6 +63,14 @@ struct Aoehdr
 	uchar	min;
 	uchar	cmd;
 	uchar	tag[4];
+};
+
+struct AtaCoalescedRead
+{
+	uchar	tag[4];
+	uchar	lba[6];
+	uchar	resvd[5];
+	uchar	sectors;
 };
 
 struct Ata
@@ -109,6 +118,13 @@ struct Aoesrr {
 //	uchar mac[6][nmacs];
 };
 
+struct Aoeextensions {
+	Aoehdr h;
+	ushort len;
+    char extensions[];
+};
+
+
 enum {
 	AoEver = 1,
 
@@ -116,6 +132,7 @@ enum {
 	Config,
 	Mask,
 	Resrel,
+	Extensions = Resrel + 0x20,
 
 	Resp = (1<<3),		// flags
 	Error = (1<<2),
@@ -165,6 +182,7 @@ enum {
 	Ncfghdr= Naoehdr + 8,
 	Nmaskhdr= Naoehdr + 4,
 	Nsrrhdr= Naoehdr + 2,
+	Nata= 60,
 
 	Nserial= 20,
 };
@@ -193,6 +211,14 @@ enum {
 	Alen= 6,
 };
 
+enum {
+	TAGS_ANY = 0,
+    TAGS_INC_LE = 1,
+    TAGS_INC_BE = 2,
+    TAGS_RANDOM = 3
+};
+
+enum { MAXLBA28SIZE = 0x0fffffff };	
 
 
 extern uchar	masks[Nmasks*Alen];
@@ -210,7 +236,8 @@ extern int	sfd;		// socket file descriptor
 extern vlong	size;		// size of blade
 extern char	*progname;
 extern char	serial[Nserial+1];
-extern uchar	write_tags_tracking, rx_tags_tracking;
+extern uchar	tags_tracking;// TAGS_*
+extern uchar	coalesced_read;
 extern int	maxscnt;
 extern char *	ifname;
 

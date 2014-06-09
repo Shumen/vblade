@@ -18,7 +18,8 @@ int	sfd = 0;		// socket file descriptor
 vlong	size = 0;		// size of blade
 char	*progname = 0;
 char	serial[Nserial+1];
-uchar   write_tags_tracking, rx_tags_tracking;
+uchar   tags_tracking = 0;
+uchar	coalesced_read = 0;
 int	maxscnt = 0;
 char	*ifname = 0;
 
