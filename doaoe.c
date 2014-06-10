@@ -193,6 +193,13 @@ aoeata(Ata *p, Ata *op, int pktlen, uchar dup)	// do ATA reqeust
 
 }
 
+static void
+resetextensions() {
+	coalesced_read = 0;
+	tags_tracking = TAGS_ANY;
+}
+
+
 #define QCMD(x) ((x)->vercmd & 0xf)
 
 // yes, this makes unnecessary copies.
@@ -230,6 +237,7 @@ confcmd(Conf *p, int payload)	// process conf request
 	case Qfset:
 		nconfig = len;
 		memcpy(config, p->data, nconfig);
+		resetextensions();
 		break;
 	default:
 		p->h.flags |= Error;
@@ -331,12 +339,6 @@ match_feat( char *feat, const char *check )
 			*feat-= ('a' - 'A');
 
 	return 1;
-}
-
-static void
-resetextensions() {
-	coalesced_read = 0;
-	tags_tracking = TAGS_ANY;
 }
 
 static int
@@ -463,8 +465,7 @@ doaoe(Aoehdr *p, Aoehdr *op, int n)
 
 	case Config:
 		if (n < Ncfghdr)
-			return;
-		resetextensions();
+			return;		
 		len = confcmd((Conf *)op, n);		
 		break;
 	case Mask:
