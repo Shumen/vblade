@@ -22,25 +22,25 @@ endif
 aoede: $O
 	${CC} -o aoede $O $L
 
-dat.o : dat.c config.h dat.h 
+dat.o : dat.c config.h dat.h tuneup.h makefile
 	${CC} ${CFLAGS} -c $<
 
-aoe.o : aoe.c config.h dat.h fns.h makefile
+aoe.o : aoe.c tuneup.h config.h dat.h fns.h makefile
 	${CC} ${CFLAGS} -c $<
 
-doaoe.o : doaoe.c config.h dat.h fns.h makefile
+doaoe.o : doaoe.c tuneup.h config.h dat.h fns.h makefile
 	${CC} ${CFLAGS} -c $<
 
-tagring.o : tagring.c config.h dat.h fns.h makefile
+tagring.o : tagring.c tuneup.h config.h dat.h fns.h makefile
 	${CC} ${CFLAGS} -c $<
 
-bfdio.o : bfdio.c config.h dat.h fns.h makefile
+bfdio.o : bfdio.c tuneup.h config.h dat.h fns.h makefile
 	${CC} ${CFLAGS} -c $<
 
-${PLATFORM}.o : ${PLATFORM}.c config.h dat.h fns.h makefile
+${PLATFORM}.o : ${PLATFORM}.c tuneup.h config.h dat.h fns.h makefile
 	${CC} ${CFLAGS} -c $<
 
-ata.o : ata.c config.h dat.h fns.h makefile
+ata.o : ata.c tuneup.h config.h dat.h fns.h makefile
 	${CC} ${CFLAGS} -c $<
 
 bpf.o : bpf.c
