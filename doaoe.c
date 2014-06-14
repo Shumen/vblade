@@ -20,7 +20,7 @@
 #include "fns.h"
 #include <netinet/if_ether.h>
 
-
+static int last_congestion = -1;
 static const unsigned long x04030201 = 0x04030201;
 static unsigned long ReverseEndianess(unsigned long x)
 {
@@ -345,6 +345,7 @@ static int
 aoeextensions(Aoeextensions *fh, int n)
 {
 	char *feat;
+	int i;
 	if (n<sizeof(Aoeextensions) || n<(sizeof(Aoeextensions) + fh->len) ||
 		fh->len<2 || fh->extensions[fh->len-2] || fh->extensions[fh->len-1]) {
 		fprintf(stderr, "bad aoeextensions packet\n");
@@ -366,7 +367,16 @@ aoeextensions(Aoeextensions *fh, int n)
 	    } else if (match_feat(feat, "tag_random")) {
 			tags_tracking = TAGS_RANDOM;
 			printf("Tags: random\n");
-	    }
+		} else if (match_feat(feat, "congestion")) {
+            feat+= (strlen(feat)+1);
+            if (!*feat) break;
+            i = atoi(feat);
+			if (i!=last_congestion) {
+				printf("Congestion: %d\n", i);
+				last_congestion = i;
+				usleep(500000);
+			}
+		}
     }
 	return n;
 }
@@ -494,3 +504,4 @@ doaoe(Aoehdr *p, Aoehdr *op, int n)
 	if (len > 0)
 		sfd_putpkt_or_die((uchar *)op, len);
 }
+
