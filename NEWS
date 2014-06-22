@@ -1,4 +1,8 @@
 -*- change-log -*-
+2014-06-22 Killer{R} <support@killprog.com>
+	added Freeze feature
+	AIO optimized for FS/device block sizes >512 bytes
+
 2014-06-09 Killer{R} <support@killprog.com>
 	added Extensions command to negotiate features 
 	removed -t and -T options (negotiated now)

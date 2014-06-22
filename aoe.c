@@ -1,4 +1,24 @@
-// aoe.c: the ATA over Ethernet virtual EtherDrive (R) blade
+/*
+  Copyright 2005-2014, CORAID.
+  For contact information, see http://coraid.com/
+  Copyright 2014, Killer{R}
+  For contact information, see http://killprog.com/
+
+  This file is part of AoEde.
+
+  AoEde is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 2 of the License.
+
+  AoEde is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with AoEde.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
 #define _GNU_SOURCE
 #include "config.h"
 #include <stdio.h>
