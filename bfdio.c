@@ -125,6 +125,15 @@ static struct
 	io_context_t	ctx;
 	uchar 			pending;
 } aio;
+#endif
+
+
+static inline char 
+are_regions_overlap(vlong lba1, int nsec1, vlong lba2, int nsec2) 
+{	
+	return (lba1<(lba2+nsec2) && lba2<(lba1+nsec1));
+}
+
 
 #ifdef DBG_VALIDATE
 
@@ -149,8 +158,6 @@ dbg_validate_buffers(char *info)
 
 #else
 # define dbg_validate_buffers(info) ;
-#endif
-
 #endif
 
 #ifdef KEEP_STATS
@@ -193,12 +200,6 @@ static struct
 # define STATS_ON_IDLE do {;}while(0)
 # define STATS_ON_STOP_BUFFERING(frd) do {;}while(0)
 #endif
-
-static inline char 
-are_regions_overlap(vlong lba1, int nsec1, vlong lba2, int nsec2) 
-{	
-	return (lba1<(lba2+nsec2) && lba2<(lba1+nsec1));
-}
 
 #ifdef USE_AIO
 
