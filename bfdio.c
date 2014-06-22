@@ -496,9 +496,11 @@ int
 bfd_putsec(uchar *place, vlong lba, int nsec)
 {
 	struct SectorBuffer *sb = 0;
-	unsigned char nice = 0, i, may_request_after_party = 1;
+	uchar nice = 0, i, may_request_after_party = 1;
 
 #ifdef USE_AIO //need some buffers to be free
+	struct SectorBuffer *sb_oldest_dirty = 0;
+	uchar dirties = 0;
 	while (aio.pending==BUFFERS_COUNT)
 		process_aio_completion(0);
 #endif
@@ -526,8 +528,23 @@ bfd_putsec(uchar *place, vlong lba, int nsec)
 					sb = sbc;
 			}
 			else if (sbc->state!=SBS_FLUSHING && sbc->state!=SBS_READING) {
-				if (!sb || (!nice && sbc->used<sb->used))
+				if (!sb || (!nice && sbc->used<sb->used)) {		
 					sb = sbc;
+#ifdef USE_AIO
+					if (sbc->state==SBS_DIRTY) {
+						++dirties;
+						if (!sb_oldest_dirty)
+							sb_oldest_dirty = sbc;
+					}
+#endif
+				}
+#ifdef USE_AIO
+				else if (sbc->state==SBS_DIRTY) {
+					++dirties;
+					if (!sb_oldest_dirty || sb_oldest_dirty->used>sbc->used )
+						sb_oldest_dirty = sbc;
+				}
+#endif
 			}
 		}
 		else if (!sb) {
@@ -542,7 +559,10 @@ bfd_putsec(uchar *place, vlong lba, int nsec)
 		else
 			may_request_after_party = 0;		
 	}
-		
+#ifdef USE_AIO
+	if (dirties>(BUFFERS_COUNT/2) && sb_oldest_dirty!=sb)
+		flush_sb_async(sb_oldest_dirty);		
+#endif
 
 	if (sb) {
 		if (!nice) {
@@ -590,7 +610,7 @@ bfd_putsec(uchar *place, vlong lba, int nsec)
 								sb->nsec = til_nsec;
 						}
 					}					
-					if (i || flush_sb_async(sb)!=-1)
+					if (!i && flush_sb_async(sb)==-1)
 #endif
 					{
 						if (may_request_after_party)
