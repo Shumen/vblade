@@ -22,6 +22,9 @@ uchar   tags_tracking = 0;
 uchar	coalesced_read = 0;
 int	maxscnt = 0;
 char	*ifname = 0;
+char	*freeeze_path = 0;
+vlong	freeeze_size_limit = 0;
+uchar	bfd_blocks_per_sector = 1;
 
 #ifdef KEEP_STATS
 vlong skipped_writes = 0;

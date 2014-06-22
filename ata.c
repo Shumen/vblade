@@ -100,7 +100,7 @@ atactl(Ataregs *p, uchar *odp)
 	ushort *ip;
 	switch (p->cmd) {
 	case 0xec:		// identify device
-		memcpy(odp, ident, 512);
+		memcpy(odp, ident, SECTOR_SIZE);
 		ip = (ushort *)odp;
 		if (size & ~MAXLBA28SIZE)
 			setlba28(ip, MAXLBA28SIZE);
@@ -131,7 +131,7 @@ atactl(Ataregs *p, uchar *odp)
 
 static inline void 
 afterio(Ataregs *p, int n) {
-	n /= 512;
+	n /= SECTOR_SIZE;
 	if ((p->sectors -= n) != 0) {
 		p->err = ABRT;
 		p->status = ERR | DRDY;
@@ -146,14 +146,14 @@ afterio(Ataregs *p, int n) {
 void
 ataread(Ataregs *p, uchar *odp) 
 {
-	int n = bfd_getsec(odp, p->lba, p->sectors);
+	int n = iox_getsec(odp, p->lba, p->sectors);
 	afterio(p, n);
 }
 
 void
 atawrite(Ataregs *p, uchar *dp)
 {
-	int n = bfd_putsec(dp, p->lba, p->sectors);
+	int n = iox_putsec(dp, p->lba, p->sectors);
     afterio(p, n);
 }
 

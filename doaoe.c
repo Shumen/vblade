@@ -88,7 +88,7 @@ static void
 atareply(Ataregs *r, Ata *op) {
 	int len;
 	if ((op->aflag & Write) == 0 && (len = op->sectors) != 0) {
-		len*= 512;
+		len*= SECTOR_SIZE;
 		len+= sizeof (Ata);
 	} else
 		len = Nata;
@@ -118,7 +118,7 @@ aoeata(Ata *p, Ata *op, int pktlen, uchar dup)	// do ATA reqeust
 	switch (r.cmd)
 	{
 		case 0x30: case 0x34://write, write ext
-			if (sizeof(*p) + 512 * r.sectors > pktlen) 
+			if (sizeof(*p) + SECTOR_SIZE * r.sectors > pktlen) 
 				return ataerror(op, BadArg);
 
 			if (r.lba + r.sectors > size) 

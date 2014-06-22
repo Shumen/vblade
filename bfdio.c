@@ -37,9 +37,29 @@
 
 #endif
 
+static int
+getsec(uchar *place, vlong lba, int nsec)
+{
+	int n = pread(bfd, place, nsec * SECTOR_SIZE, lba * SECTOR_SIZE);
+	if (n!=nsec * SECTOR_SIZE)
+	{
+		perror("getsec failed");
+		printf("place=%p lba=%llu nsec=%d\n", place, lba, nsec);
+	}
+	return n;
+}
 
-//Set in stone, do not change
-#define SECTOR_SIZE		512 	
+static int
+putsec(uchar *place, vlong lba, int nsec)
+{
+	int n = pwrite(bfd, place, nsec * SECTOR_SIZE, lba * SECTOR_SIZE);
+	if (n!=nsec * SECTOR_SIZE)
+	{
+		perror("putsec failed");
+		printf("place=%p lba=%llu nsec=%d\n", place, lba, nsec);
+	}
+	return n;
+}
 
 
 #if BUFFERS_COUNT
@@ -289,7 +309,7 @@ flush_sb_sync(struct SectorBuffer *sb)
 	}
 #endif
 
-	if (putsec(bfd, &sb->data[0], sb->lba, sb->nsec)!=(sb->nsec*SECTOR_SIZE))
+	if (putsec(&sb->data[0], sb->lba, sb->nsec)!=(sb->nsec*SECTOR_SIZE))
 		return -1;
 
 	sb->state = SBS_CLEAN;
@@ -307,7 +327,7 @@ read_sb_sync(struct SectorBuffer *sb)
 	}
 #endif
 
-	return getsec(bfd, &sb->data[0], sb->lba, sb->nsec);
+	return getsec(&sb->data[0], sb->lba, sb->nsec);
 }
 
 
@@ -360,14 +380,14 @@ bfd_idle_begin()
 			INCREMENT_STAT(after_party);
 			did_io = 1;
 		}
-		return did_io ? 0 : (oldest_dirty_sb ? 1000 : (allocated_buffers ? 10000 : -1) );
+		return did_io ? 0 : (oldest_dirty_sb ? 1 : (allocated_buffers ? 10 : -1) );
 	}
 
 	for (i = 0; i< BUFFERS_COUNT; ++i) {
 		if (sbs[i].state!=SBS_CLEAN)
-			return 1000;//no need to loop more
+			return 1;//no need to loop more
 	}
-	return allocated_buffers ? 10000 : -1;
+	return allocated_buffers ? 10: -1;
 }
 
 void 
@@ -385,7 +405,7 @@ bfd_idle_elapsed(int t)
 					continue;
 			}
 
-			if (t>=10000) {
+			if (t>=10) {
 				--allocated_buffers;
 				++frd;
 				free(sbc->data);
@@ -466,9 +486,8 @@ bfd_putsec(uchar *place, vlong lba, int nsec)
 	for (i = 0; i<BUFFERS_COUNT; ++i) {
 		struct SectorBuffer *sbc = &sbs[i];
 		if (sbc->nsec) {
-			if (!nice && sbc->state!=SBS_FLUSHING && sbc->state!=SBS_READING && sbc->lba<=lba && 
-				(sbc->lba+sbc->nsec)>=lba && 
-				(lba + (vlong)nsec - sbc->lba)<=BUFFERED_SECTORS) {
+			if (!nice && (sbc->state==SBS_DIRTY || (sbc->state==SBS_CLEAN && sbc->nsec<=(nsec/2))) &&
+				sbc->lba<=lba && (sbc->lba+sbc->nsec)>=lba && (lba + (vlong)nsec - sbc->lba)<=BUFFERED_SECTORS) {
 				sb = sbc;				
 				nice = 1;
 			}
@@ -533,16 +552,34 @@ bfd_putsec(uchar *place, vlong lba, int nsec)
 			if (sb->nsec<til_nsec)  {
 				sb->nsec = til_nsec;
 #if BUFFER_FULL_THRESHOLD
-				if (til_nsec>=BUFFER_FULL_THRESHOLD &&
+				if (til_nsec>=BUFFER_FULL_THRESHOLD) {
 #ifdef USE_AIO
-					flush_sb_async(sb)==-1 && 
+					i = 0;
+					if (nice && bfd_blocks_per_sector!=1) {
+						vlong lba_end_aligned = bfd_blocks_per_sector * ((sb->lba + til_nsec)/bfd_blocks_per_sector);
+						sb->nsec = (int) (lba_end_aligned - sb->lba);
+						if (sb->nsec!=til_nsec) {
+							if (flush_sb_async(sb)!=-1) {
+								i = 1;
+								til_nsec-= sb->nsec;
+								if (bfd_putsec(&sb->data[sb->nsec * SECTOR_SIZE], lba_end_aligned, til_nsec)!= (til_nsec*SECTOR_SIZE)) {
+									nsec-= (til_nsec*SECTOR_SIZE);
+								}
+							} else
+								sb->nsec = til_nsec;
+						}
+					}					
+					if (i || flush_sb_async(sb)!=-1)
 #endif
-					may_request_after_party) {
-					wanna_after_party = 1;
+					{
+						if (may_request_after_party)
+							wanna_after_party = 1;
+					}
 				}
 #endif
 			}
 			dbg_validate_buffers("put - after");
+
 			return nsec;
 		}
 	}
@@ -551,7 +588,7 @@ bfd_putsec(uchar *place, vlong lba, int nsec)
 #ifdef USE_AIO
 	wait_aio_complete_all();
 #endif
-	return putsec(bfd, place, lba, nsec);
+	return putsec(place, lba, nsec);
 }
 
 #if READ_TRACKS
@@ -641,6 +678,10 @@ bfd_getsec(uchar *place, vlong lba, int nsec)
 					if (rt->weight>=15 && (n + lba_delta)>=(BUFFER_FULL_THRESHOLD*SECTOR_SIZE)) {
 						vlong lba_ahead = sbc->lba + sbc->nsec + BUFFERED_SECTORS;//one step futher
 						uchar already_processed = i;
+						if (bfd_blocks_per_sector!=1) {
+							lba_ahead/= bfd_blocks_per_sector;
+							lba_ahead*= bfd_blocks_per_sector;
+						}
 						for (i = 0;;++i) {
 							if (i==BUFFERS_COUNT) {
 								if (lba_ahead<right_edge && sb && 
@@ -725,7 +766,7 @@ bfd_getsec(uchar *place, vlong lba, int nsec)
 #endif
 
 	INCREMENT_STAT(rd_miss);
-	nsec = getsec(bfd, place, lba, nsec);	
+	nsec = getsec(place, lba, nsec);	
 	dbg_validate_buffers("get - after3");	
 	return  (nsec>0) ? out + nsec : out;
 }
@@ -754,8 +795,8 @@ bfd_init() {
 void bfd_init() {};
 int bfd_idle_begin() {return -1; };
 void bfd_idle_elapsed(int t) {}; 
-int bfd_putsec(uchar *place, vlong lba, int nsec) { return putsec(bfd, place, lba, nsec); }
-int bfd_getsec(uchar *place, vlong lba, int nsec) { return getsec(bfd, place, lba, nsec);}
+int bfd_putsec(uchar *place, vlong lba, int nsec) { return putsec(place, lba, nsec); }
+int bfd_getsec(uchar *place, vlong lba, int nsec) { return getsec(place, lba, nsec);}
 void bfd_flush() {} ;
 
 #endif

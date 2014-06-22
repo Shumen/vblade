@@ -122,38 +122,13 @@ getmtu(int s, char *name)
 }
 
 int
-getsec(int fd, uchar *place, vlong lba, int nsec)
-{
-	int n = pread(fd, place, nsec * 512, lba * 512);
-	if (n!=nsec * 512)
-	{
-		perror("getsec failed");
-		printf("place=%p lba=%llu nsec=%d\n", place, lba, nsec);
-	}
-	return n;
-}
-
-int
-putsec(int fd, uchar *place, vlong lba, int nsec)
-{
-	int n = pwrite(fd, place, nsec * 512, lba * 512);
-	if (n!=nsec * 512)
-	{
-		perror("putsec failed");
-		printf("place=%p lba=%llu nsec=%d\n", place, lba, nsec);
-	}
-	return n;
-}
-
-int
 getpkt(int fd, uchar *buf, int sz)
 {
 #if POISON_RECV
     while ((rand()%POISON_RECV)==0)
-        read(fd, buf, sz);
+        iox_read_packet_fd(fd, buf, sz);
 #endif
-
-	return read(fd, buf, sz);
+	return iox_read_packet_fd(fd, buf, sz);
 }
 
 int
@@ -209,7 +184,6 @@ getsize(int fd)
 #define ROLL_PTR(ptr, adding, base, limit) if (limit==(ptr=OFFSET_PTR(ptr, adding))) ptr = base; 
 #define ROLL_PTR_CHECK_EXIT(ptr, adding, base, limit, exit_expression, exit_value) if (limit==(ptr=OFFSET_PTR(ptr, adding))) {ptr = base; if (exit_expression) return exit_value;  }
 
-
 static struct PacketsRing
 {
 	int frames;
@@ -220,15 +194,10 @@ static struct PacketsRing
 static int 
 poll_rx_ring_socket(struct tpacket_hdr *header) 
 {
-	struct pollfd pollset;
 	int r, idle_hint;
 	for (;;) {
-		pollset.fd = sfd;
-		pollset.events = POLLIN;
-		pollset.revents = 0;
-
 		idle_hint = bfd_idle_begin();
-		r = (idle_hint!=0) ? poll(&pollset, 1, idle_hint) : 1;
+		r = (idle_hint!=0) ? iox_poll(sfd, idle_hint) : 1;
 			
 		if ((header->tp_status & TP_STATUS_USER)!=0)
 			return 0;
@@ -241,11 +210,8 @@ poll_rx_ring_socket(struct tpacket_hdr *header)
 #endif
 		}
 		else if (r < 0) {
-			if (errno != EINTR) {
-				perror("poll()");
-				return -1;
-			}
-			usleep(1000);
+			perror("iox_poll()");
+			return -1;
 		}
 	}
 }
@@ -482,7 +448,7 @@ rxring_maxscnt()
 		if (mtu>rxring_mtu) 
 			mtu = rxring_mtu;
 	}
-	return (mtu - sizeof (Ata)) / 512;
+	return (mtu - sizeof (Ata)) / SECTOR_SIZE;
 }
 
 

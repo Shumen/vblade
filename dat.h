@@ -24,6 +24,10 @@ enum {
 #define PAGE_ALIGN(x)        Z_ALIGN(x, getpagesize())
 
 
+//Set in stone, do not change
+#define SECTOR_SIZE		512 	
+
+
 typedef unsigned char uchar;
 //typedef unsigned short ushort;
 #ifdef __FreeBSD__
@@ -221,6 +225,9 @@ enum {
 enum { MAXLBA28SIZE = 0x0fffffff };	
 
 
+extern uchar freeze_stopping;
+extern uchar freeze_active;
+
 extern uchar	masks[Nmasks*Alen];
 extern int	nmasks;
 extern uchar	srr[Nsrr*Alen];
@@ -234,12 +241,15 @@ extern uchar	mac[6];
 extern int	bfd;		// block file descriptor
 extern int	sfd;		// socket file descriptor
 extern vlong	size;		// size of blade
+extern uchar	bfd_blocks_per_sector;	//how many AoE sectors contained in FS block 
 extern char	*progname;
 extern char	serial[Nserial+1];
 extern uchar	tags_tracking;// TAGS_*
 extern uchar	coalesced_read;
 extern int	maxscnt;
 extern char *	ifname;
+extern char *	freeeze_path;
+extern vlong	freeeze_size_limit;
 
 #ifdef KEEP_STATS
 extern vlong skipped_writes;

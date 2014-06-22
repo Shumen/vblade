@@ -56,14 +56,6 @@ aoead(int fd)	// advertise the virtual blade
 }
 
 void 
-handle_signal(int signal)
-{
-	printf("Got signal: %d\n", signal);
-	grace_exit(signal);
-}
-
-
-void 
 aoe(void) 
 {
 	int n;	
@@ -87,11 +79,6 @@ aoe(void)
 	n = (size_t) buf + sizeof(Ata);
 	if (n & (pagesz - 1))
 		buf += pagesz - (n & (pagesz - 1));
-
-	signal(SIGINT, handle_signal);
-    signal(SIGTERM, handle_signal);
-	signal(SIGQUIT, handle_signal);
-    signal(SIGKILL, handle_signal);
 
 #ifdef SOCK_RXRING
 	if (rxring_init()!=-1) {
@@ -231,6 +218,8 @@ setserial(char *f, int sh, int sl)
 int
 main(int argc, char **argv)
 {
+	char *sz;
+	struct stat st;
 #ifdef KEEP_STATS
 	skipped_writes = 0;
 	skipped_packets = 0;
@@ -251,12 +240,30 @@ main(int argc, char **argv)
 	setbuf(stdin, NULL);
 	progname = *argv;
 	tags_tracking = TAGS_ANY;
-	bfd_init(); //do it right now so we can call bfd_flush anytime
-	while ((ch = getopt(argc, argv, "b:dsrm:")) != -1) {
+	iox_init(); //do it right now so we can call iox_flush anytime
+	while ((ch = getopt(argc, argv, "f:b:dsrm:")) != -1) {
 		switch (ch) {
 		case 'b':
 			bufcnt = atoi(optarg);
 			break;
+
+		case 'f':
+#ifdef SHADOW_FREEZE
+			freeeze_path = strdup(optarg);
+			sz = strrchr(freeeze_path, ',');
+			if (sz) {
+				*sz = 0;
+				freeeze_size_limit = atoi(sz+1);
+				printf("Freeze storage '%s' with %lluMB size limit\n", freeeze_path, freeeze_size_limit);
+				freeeze_size_limit*= 0x100000;
+			}
+			else
+				printf("Freeze storage '%s' without size limit\n", freeeze_path);
+#else
+			printf("Freeze storage can't be used due to SHADOW_FREEZE not specified in build\n");
+#endif
+			break;
+
 		case 'd':
 #ifdef O_DIRECT
 # ifdef USE_AIO
@@ -304,7 +311,13 @@ main(int argc, char **argv)
 		perror("flock");
 		grace_exit(1);		
 	}
-	
+	if (fstat(bfd, &st)==0) {
+		if (st.st_blksize > SECTOR_SIZE && 
+			st.st_blksize < (0x100*SECTOR_SIZE) && 
+			(st.st_blksize % SECTOR_SIZE)==0) {
+			bfd_blocks_per_sector = (uchar) (st.st_blksize / SECTOR_SIZE);
+		}
+	}
 	tagring_init();
 	shelf = atoi(argv[0]);
 	shelf_net = htons(shelf);
@@ -312,12 +325,12 @@ main(int argc, char **argv)
 	slot = atoi(argv[1]);
 	setserial(argv[3], shelf, slot);
 	size = getsize(bfd);
-	size /= 512;
+	size /= SECTOR_SIZE;
 	ifname = argv[2];
 	sfd = dial(ifname, bufcnt);
 	getea(sfd, ifname, mac);
 	update_maxscnt();
-	printf("pid %ld: e%d.%d, %lld sectors%s%s%s, maxscnt: %u\n",
+	printf("pid %ld: e%d.%d, %lld sectors%s%s%s, maxscnt: %u, block/sector: %u\n",
 		(long) getpid(), shelf, slot, size,
 		readonly ? " O_RDONLY" : " O_RDWR",  
 
@@ -333,7 +346,7 @@ main(int argc, char **argv)
 		(omode&O_SYNC) ? " O_SYNC" : "",
 #endif
 
-		maxscnt);
+		maxscnt, bfd_blocks_per_sector);
 
 	fflush(stdout);
 	bfd_init();
@@ -346,6 +359,6 @@ main(int argc, char **argv)
 void 
 grace_exit(int ncode) //flush IO buffers and exit
 {
-	bfd_flush();
+	iox_flush();
 	exit(ncode);
 }

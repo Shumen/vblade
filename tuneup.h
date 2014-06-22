@@ -41,6 +41,10 @@
 #endif 
 
 
+//following option enabled background 'shadow' writes while main
+//blade image 'freeze'd' 
+#define SHADOW_FREEZE
+
 
 /////////////////////////////////////////////////////////////////////////////////
 ////following options designed for debug/diagnose purposes and normally disabled

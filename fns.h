@@ -35,8 +35,6 @@ void	free_bpf_program(void *);
 
 int	dial(char *, int);
 int	getea(int, char *, uchar *);
-int	putsec(int, uchar *, vlong, int);
-int	getsec(int, uchar *, vlong, int);
 int	putpkt(int, uchar *, int);
 int	getpkt(int, uchar *, int);
 vlong	getsize(int);
@@ -69,10 +67,23 @@ update_maxscnt() {
 #else
 static inline void 
 update_maxscnt() {
-	maxscnt = (getmtu(sfd, ifname) - sizeof (Ata)) / 512;
+	maxscnt = (getmtu(sfd, ifname) - sizeof (Ata)) / SECTOR_SIZE;
 }
 #endif
 
+// io.c
+ssize_t iox_read_packet_fd(int fd, void *buf, size_t count);
+int iox_poll(int fd, int timeout);
+int iox_putsec(uchar *place, vlong lba, int nsec);
+int iox_getsec(uchar *place, vlong lba, int nsec);
+void iox_flush();
+void iox_init();
+
+// freeze.c
+int freeze_putsec(uchar *data, vlong offset, int len);
+int freeze_getsec(uchar *data, vlong offset, int len);
+void freeze_start();
+void freeze_flush_and_stop(unsigned int time_limit);
 
 //////////////////////////////////////////////////////////
 ///bfd_ functions - must be used to access disk image file
@@ -81,7 +92,7 @@ update_maxscnt() {
 void bfd_init();
 
 ///Call this before entering blocking network wait.
-///Returns sujjested wait timeout:
+///Returns sujjested wait timeout in seconds:
 ////0 if some IO performed during this call so caller can check for new packets w/o wait.
 ////Some suggested blocking wait timeout after what elapsion call bfd_idle_elapsed() .
 ////Or -1 in other cases.

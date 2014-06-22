@@ -209,19 +209,6 @@ getea(int s, char *eth, uchar *ea)
 	return(0);
 }
 
-
-int
-getsec(int fd, uchar *place, vlong lba, int nsec)
-{
-	return pread(fd, place, nsec * 512, lba * 512);
-}
-
-int
-putsec(int fd, uchar *place, vlong lba, int nsec)
-{
-	return pwrite(fd, place, nsec * 512, lba * 512);
-}
-
 static int pktn = 0;
 static uchar *pktbp = NULL;
 
@@ -230,9 +217,9 @@ getpkt(int fd, uchar *buf, int sz)
 {
 	register struct bpf_hdr *bh;
 	register int pktlen, retlen;
-	
+
 	if (pktn <= 0) { 
-		if ((pktn = read(fd, pktbuf, pktbufsz)) < 0) {
+		if ((pktn = iox_read_packet_fd(fd, pktbuf, pktbufsz)) < 0) {
 			perror("read");
 			grace_exit(1);
 		}
