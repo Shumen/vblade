@@ -75,31 +75,36 @@ aoead(int fd)	// advertise the virtual blade
 	}
 }
 
+static void *
+allocate_ata_aligned_buffer(size_t sz)
+{
+	//kernel 2.6 requires 512 bytes alignment for O_DIRECT
+	//so I/O buffer align by 512 bytes
+	void *buf;
+	if ((buf = malloc(sz + 512)) == NULL) {
+		perror("malloc");
+		grace_exit(1);
+	}
+	if ((sz = ((size_t) buf + sizeof(Ata)) % 512)!=0)
+		buf+= (512 - sz);
+
+	return buf;
+}
+
 void 
 aoe(void) 
 {
-	int n;	
-	uchar *buf;
-	long pagesz;
+	//jumbo frames nowadays are 9K maximum
+	//32K ought to be enough for anybody ;)
+	const size_t bufsz = 0x8000;
+	int n, m;
+	void *buf, *buf_pkt_in;
+
 #ifdef KEEP_STATS
 	time_t tm_stats = time(0); 
 #endif
 
-
-	enum { bufsz = 1<<16, };
-
-	if ((pagesz = sysconf(_SC_PAGESIZE)) < 0) {
-		perror("sysconf");
-		grace_exit(1);
-	}        
-	if ((buf = malloc(bufsz + pagesz)) == NULL) {
-		perror("malloc");
-		grace_exit(1);
-	}
-	n = (size_t) buf + sizeof(Ata);
-	if (n & (pagesz - 1))
-		buf += pagesz - (n & (pagesz - 1));
-
+	buf =  allocate_ata_aligned_buffer(bufsz);
 #ifdef SOCK_RXRING
 	if (rxring_init()!=-1) {
 		aoead(sfd);
@@ -110,16 +115,17 @@ aoe(void)
 	printf("Falling back to socket read\n");
 #endif
 
+	buf_pkt_in = allocate_ata_aligned_buffer(bufsz);
 	aoead(sfd);
 	for (;;) {
 		Aoehdr *p;
-		n = getpkt(sfd, buf, bufsz);
+		n = getpkt(sfd, buf_pkt_in, bufsz);
 		if (n < 0) {
 			perror("read network");
 			grace_exit(1);
 		}
-		p = (Aoehdr *) buf;
-		int m = packet_check(p, n);
+		p = (Aoehdr *) buf_pkt_in;
+		m = packet_check(p, n);
 		if (m>=0) {
 			if (tags_tracking==TAGS_INC_LE || tags_tracking==TAGS_INC_BE) 
 				tagring_select(m);
@@ -245,14 +251,16 @@ main(int argc, char **argv)
 	skipped_packets = 0;
 #endif
 	int ch, omode = O_NOATIME, readonly = 0;
+
 #ifdef USE_AIO
 # ifdef O_DIRECT
 	omode |= O_DIRECT;
-# endif
-# ifdef O_DSYNC 
-	omode |= O_DSYNC;
 # else
+#  ifdef O_DSYNC 
+	omode |= O_DSYNC;
+#  else
 	omode |= O_SYNC;
+#  endif
 # endif
 #endif
 
@@ -296,15 +304,11 @@ main(int argc, char **argv)
 #endif
 			break;
 		case 's':
-#ifdef USE_AIO
-			printf("Synchronous mode implied by AIO\n");
-#else
 # ifdef O_DSYNC 
 			omode |= O_DSYNC;
 # else
 			omode |= O_SYNC;
 # endif
-#endif
 			break;
 		case 'r':
 			readonly = 1;

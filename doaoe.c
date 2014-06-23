@@ -463,18 +463,14 @@ doaoe(Aoehdr *p, Aoehdr *op, int n)
 	memcpy(op->src, mac, 6);
 	op->maj = shelf_net;
 	op->min = slot;
+	op->type = p->type;
+	op->flags = p->flags | Resp;
+	op->error = p->error;
+	op->cmd = cmd;
+	memcpy(op->tag, p->tag, sizeof(op->tag));
+	memcpy(op+1, p+1, (cmd!=ATAcmd)  ? 
+		n - sizeof(Aoehdr) : sizeof(Ata) - sizeof(Aoehdr));
 
-	if (p!=op) {
-		op->type = p->type;
-		op->flags = p->flags | Resp;
-		op->error = p->error;
-		op->cmd = cmd;
-		memcpy(op->tag, p->tag, sizeof(op->tag));
-		memcpy(op+1, p+1, (cmd!=ATAcmd)  ? 
-			n - sizeof(Aoehdr) : sizeof(Ata) - sizeof(Aoehdr));
-	}
-	else
-		op->flags|= Resp;
 	switch (tags_tracking) {
 		case TAGS_INC_LE://incrementing little-endian
 			dup = tagring_process(LE2HST(*(unsigned long *)&p->tag[0]));
