@@ -53,6 +53,8 @@
 int	getindx(int, char *);
 int	getea(int, char *, uchar *);
 
+#define MEM_FENCE	asm volatile("": : :"memory");  //__sync_synchronize();
+
 int
 dial(char *eth, int bufcnt)		// get us a raw connection to an interface
 {
@@ -213,7 +215,7 @@ static struct PacketsRing
 } rx_ring = {0};
 
 static int 
-poll_rx_ring_socket(struct tpacket_hdr *header) 
+poll_rx_ring_socket(volatile struct tpacket_hdr *header) 
 {
 	int r, idle_hint;
 	for (;;) {
@@ -240,10 +242,10 @@ poll_rx_ring_socket(struct tpacket_hdr *header)
 static uchar
 roll_rx_ring_with_tags_tracking(uchar *buf) 
 {
-	struct tpacket_hdr *rx_base = (struct tpacket_hdr *) rx_ring.ring;
-	struct tpacket_hdr *rx_limit = (struct tpacket_hdr *)
+	volatile struct tpacket_hdr *rx_base = (struct tpacket_hdr *) rx_ring.ring;
+	volatile struct tpacket_hdr *rx_limit = (struct tpacket_hdr *)
 			(rx_ring.ring + rx_ring.frames*rx_ring.frame_size);
-	struct tpacket_hdr *rx;
+	volatile struct tpacket_hdr *rx;
 
 	//using this buffer with forward-collected information highly improves
 	//performance on minimalistic boxes due to minimizing accessed memory pages
@@ -270,13 +272,17 @@ roll_rx_ring_with_tags_tracking(uchar *buf)
 		if ((rx->tp_status & TP_STATUS_USER)==0) {//if we have nothing then lets wait for something
 			if (poll_rx_ring_socket(rx)<0)
 				break;			
+		} else {
+			MEM_FENCE;
 		}
 
 		if (mask!=-1 && (mask>=0 || (rx->tp_status & TP_STATUS_COPY)==0)) {
 			ulong tag;
 			void *data = OFFSET_PTR(rx, rx->tp_mac);
 			int len = rx->tp_snaplen;
-
+#ifdef DBG_VALIDATE
+			assert((rx->tp_status & TP_STATUS_COPY)==0);
+#endif
 			if (mask==-2)  {
 				mask = packet_check(data, len);	
 				if (mask>=0)
@@ -296,11 +302,13 @@ roll_rx_ring_with_tags_tracking(uchar *buf)
 					
 					if (tmp_fpi->mask==-2) {//reached end of relevant collected entries following 
 											//nested loop inspects remaining valid RX entries in ring
-						struct tpacket_hdr *tmp_rx = //start from corresponding RX entry
+						volatile struct tpacket_hdr *tmp_rx = //start from corresponding RX entry
 							OFFSET_PTR(rx_base, (tmp_fpi - fpi_base)*rx_ring.frame_size);
 
 						while ((tmp_rx->tp_status & TP_STATUS_USER)!=0) {
+#ifdef DBG_VALIDATE
 							assert(tmp_rx!=rx);
+#endif
 							
 							if ((tmp_rx->tp_status & TP_STATUS_COPY)==0) {
 								void *tmp_data = OFFSET_PTR(tmp_rx, tmp_rx->tp_mac);
@@ -345,12 +353,15 @@ roll_rx_ring_with_tags_tracking(uchar *buf)
 			}
 		}
 		fpi->mask = -2;
+		MEM_FENCE;
 		rx->tp_status = 0;
 		ROLL_PTR(fpi, sizeof(struct FwdPacketInfo), fpi_base, fpi_limit);
 		ROLL_PTR_CHECK_EXIT(rx, rx_ring.frame_size, rx_base, rx_limit, (tags_tracking==TAGS_ANY), 1);
 
+#ifdef DBG_VALIDATE
 		//both rings must be rolled synchronously
 		assert( (fpi==fpi_base && rx==rx_base) || (fpi!=fpi_base && rx!=rx_base));
+#endif
 	}
 	return 0;
 }
@@ -360,15 +371,17 @@ roll_rx_ring_with_tags_tracking(uchar *buf)
 static uchar
 roll_rx_ring_no_tags_tracking(uchar *buf) 
 {
-	struct tpacket_hdr *rx_base = (struct tpacket_hdr *) rx_ring.ring;
-	struct tpacket_hdr *rx_limit = 
+	volatile struct tpacket_hdr *rx_base = (struct tpacket_hdr *) rx_ring.ring;
+	volatile struct tpacket_hdr *rx_limit = 
 		(struct tpacket_hdr *)(rx_ring.ring + rx_ring.frames*rx_ring.frame_size);
-	struct tpacket_hdr *rx;
+	volatile struct tpacket_hdr *rx;
 
 	for (rx = rx_base;;) {
 		if ((rx->tp_status & TP_STATUS_USER)==0) {//if we have nothing then lets wait for something
 			if (poll_rx_ring_socket(rx)<0)
 				break;			
+		} else {
+			MEM_FENCE;
 		}
 
 		if ((rx->tp_status & TP_STATUS_COPY)==0) {
@@ -385,6 +398,7 @@ roll_rx_ring_no_tags_tracking(uchar *buf)
 				doaoe((Aoehdr *)data, (Aoehdr *)buf, len);
 			}
 		}
+		MEM_FENCE;
 		rx->tp_status = 0;
 		ROLL_PTR_CHECK_EXIT(rx, rx_ring.frame_size, rx_base, rx_limit, (tags_tracking!=TAGS_ANY), 1);
 	}

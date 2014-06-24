@@ -491,6 +491,8 @@ uchar ensure_sb_clean(struct SectorBuffer *sb)
 	}
 }
 
+#define unaligned_memcpy(dst, src, len) \
+	memcpy((void *)(dst), (const void *)(src), (len))
 
 int 
 bfd_putsec(uchar *place, vlong lba, int nsec)
@@ -587,7 +589,12 @@ bfd_putsec(uchar *place, vlong lba, int nsec)
 		if (sb) {
 			vlong til_nsec =  lba + (vlong)nsec - sb->lba;
 			nsec*= SECTOR_SIZE;
+#ifdef SOCK_RXRING
+			unaligned_memcpy(&sb->data[(lba - sb->lba)*SECTOR_SIZE], place, nsec);
+#else
 			memcpy(&sb->data[(lba - sb->lba)*SECTOR_SIZE], place, nsec);
+#endif
+
 			sb->used = ++use_counter;
 			sb->state = SBS_DIRTY;
 			if (sb->nsec<til_nsec)  {
