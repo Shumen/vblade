@@ -129,6 +129,9 @@ AoE Initiator Compatibility
 The Linux aoe driver for the 2.6 kernel is compatible if you use
 aoe-2.6-7 or newer.  You can use older aoe drivers but you will only
 be able to see one AoEde per MAC address.
+Extended features can be used only with target that supports them.
+Currently only AoEDisk does this. You can find it here: 
+https://sourceforge.net/projects/aoedisk/
 
 
 Experimental Tag tracking functionality
@@ -150,15 +153,55 @@ TBD: Add special command in Aoemask request or flag into Aoehdr so initiator
 will explicitely manifest itself as following described tag field behaviour.
 
 
+CRC data integrity verification 
+---------------------------
+
+Normally ethernet hardware uses CRC32 to ensure transferred data integrity 
+(google 'Frame Check Sequence' for details). However there're cases when it
+would be nice to have some additional integrity verification: to check that
+hardware works flawless, or if user is veri worried about data integrity and
+ready to pay some CPU cycles and/or network throughput. This project is able 
+to check CRC of incoming write requests and apply CRC to read responces before
+send them. 4 CRC8 checksums used for that. I selected such algorithm since its 
+faster than CRC16/32 and still good enough to _diagnose_ errors. However if 
+your hardware somewhy doesn't handle own FCS/CRC32 properly - Aoede's CRC is 
+not strong enough to guarantee data integrity if used alone.
+Note that this feature implemented as extension that should be supported by 
+activated and also must be explicitly activated by it in order to work.
+When it activated: any write requests with mismatched CRC will be printed to 
+stderr and every read responce will be supplemented with 4 bytes of CRC.
+
+
+Exported image freeze
+---------------------------
+
+AoEde able to freeze disk image for a while with shadowing all writes. This 
+means that its possible to stop any modifications to disk image file or device, 
+while keeping client to work with it as usual (may be only a bit slower than 
+usual). When received 'freeze' signal AoEde flushes all its internal buffers 
+and begin functioning in special freezed mode until gets 'unfreeze' signal. 
+Also you should specify temporary shadow file, where all writes will go instead 
+while actual image remains 'freeze'-d. Use option -f for that, like:
+aoede -b 64 1 1 egiga0 /var/.AOE/disk11.fs -f /var/.AOE/shadow11.fs
+Also make sure that shadow file located on filesystem that supports sparse files, 
+otherwise it will instantly occupy a bit more space than size of main image.
+How to freeze/unfreeze? Very simple. Use kill for that:
+freeze:
+kill -USR1 ${AOEDE_PID}
+kill -USR2 ${AOEDE_PID}
+unfreeze:
+kill -USR1 ${AOEDE_PID}
+kill -USR1 ${AOEDE_PID}
+kill -USR2 ${AOEDE_PID}
+Note that freezing/unfreezing doesn't performed instantly. So after sending freeze 
+sequence wait until AoEde will create shadow file. And after sending unfreeze - 
+wait until that file will be removed.
+Unfreezing flushes written data to main image 'in background', without stopping 
+serving initiator requests. However this process noticeable decreases performance 
+until finishes. 
+
 
 Contrib Patches
 ---------------
 
 see contrib/README
-
-KAoEde
--------
-
-  While AoEde runs as a userland process (like "ls" or "vi"), there
-  is another program that runs inside the kernel.  It is called
-  kAoEde.  It is alpha software.
