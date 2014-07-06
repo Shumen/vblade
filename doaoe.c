@@ -48,12 +48,12 @@ ReverseEndianess(unsigned long x)
 }
 
 
-#if (__BYTE_ORDER  == __LITTLE_ENDIAN) || (__BYTE_ORDER__  == __LITTLE_ENDIAN__)
+#if (defined(__BYTE_ORDER) && __BYTE_ORDER  == __LITTLE_ENDIAN) || (defined(__BYTE_ORDER__) &&  __BYTE_ORDER__  == __LITTLE_ENDIAN__)
 
 # define LE2HST(x)	(x)
 # define BE2HST(x)	(ReverseEndianess(x))
 
-#elif (__BYTE_ORDER  == __BIG_ENDIAN) || (__BYTE_ORDER__  == __BIG_ENDIAN__)
+#elif (defined(__BYTE_ORDER) && __BYTE_ORDER  == __BIG_ENDIAN) || (defined(__BYTE_ORDER__) &&  __BYTE_ORDER__  == __BIG_ENDIAN__)
 
 # define LE2HST(x)	(ReverseEndianess(x))
 # define BE2HST(x)	(x)
