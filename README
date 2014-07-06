@@ -159,7 +159,7 @@ CRC data integrity verification
 Normally ethernet hardware uses CRC32 to ensure transferred data integrity 
 (google 'Frame Check Sequence' for details). However there're cases when it
 would be nice to have some additional integrity verification: to check that
-hardware works flawless, or if user is veri worried about data integrity and
+hardware works flawless, or if user is very worried about data integrity and
 ready to pay some CPU cycles and/or network throughput. This project is able 
 to check CRC of incoming write requests and apply CRC to read responces before
 send them. 4 CRC8 checksums used for that. I selected such algorithm since its 
@@ -167,7 +167,7 @@ faster than CRC16/32 and still good enough to _diagnose_ errors. However if
 your hardware somewhy doesn't handle own FCS/CRC32 properly - Aoede's CRC is 
 not strong enough to guarantee data integrity if used alone.
 Note that this feature implemented as extension that should be supported by 
-activated and also must be explicitly activated by it in order to work.
+initiator and also must be explicitly activated by it in order to work.
 When it activated: any write requests with mismatched CRC will be printed to 
 stderr and every read responce will be supplemented with 4 bytes of CRC.
 
