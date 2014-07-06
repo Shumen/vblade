@@ -21,6 +21,9 @@ char	*progname = 0;
 char	serial[Nserial+1];
 uchar   tags_tracking = 0;
 uchar	coalesced_read = 0;
+#ifdef SUPPORT_CRC
+uchar	enable_crc = 0;
+#endif
 int	maxscnt = 0;
 char	*ifname = 0;
 char	*freeeze_path = 0;

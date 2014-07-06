@@ -31,6 +31,11 @@ void	aoeata(Ata *request, Ata *reply, int pktlen, unsigned long tag);
 void *	create_bpf_program(int, int);
 void	free_bpf_program(void *);
 
+// crc.c
+#ifdef SUPPORT_CRC
+void aoecrc8x4_append(unsigned char *data, size_t len);
+unsigned char aoecrc8x4_verify(const unsigned char *data, size_t len);
+#endif
 // os specific
 
 int	dial(char *, int);

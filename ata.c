@@ -151,12 +151,24 @@ atareply(Ata *ata_responce) {
 	atapreinit(ata_responce);
 	if ((ata_responce->aflag & Write) == 0 && (len = ataio_ctx.request->sectors) != 0) {
 		len*= SECTOR_SIZE;
-		len+= sizeof (Ata);
+		len+= sizeof(Ata);
 	} else
 		len = Nata;
 	ata_responce->err = ataio_ctx.r.err;
 	ata_responce->sectors = ataio_ctx.r.sectors;
 	ata_responce->cmd = ataio_ctx.r.status;
+
+#ifdef SUPPORT_CRC
+	if (len>Nata) {
+		uchar saved_bytes[4];
+	    memcpy(&saved_bytes[0], ((uchar *)ata_responce) + len, sizeof(saved_bytes));
+		aoecrc8x4_append(((uchar *)ata_responce) + sizeof(Aoehdr), len - sizeof(Aoehdr));
+		sfd_putpkt_or_die((uchar *)ata_responce, len + 4);
+		memcpy(((uchar *)ata_responce) + len, &saved_bytes[0], sizeof(saved_bytes));
+		return;
+	}
+#endif
+
 	sfd_putpkt_or_die((uchar *)ata_responce, len);
 }
 
@@ -220,8 +232,6 @@ rd_callback_with_preinit_buffer(int nret)
 	atareply(ataio_ctx.reply);
 }
 
-
-
 static void
 aoeataread(int pktlen)
 {
@@ -265,6 +275,16 @@ aoeatawrite(int pktlen, uchar dup)
 
 	if (AOE_UNLIKELY(sizeof(Ata) + SECTOR_SIZE * ataio_ctx.r.sectors > pktlen))
 		return ataerror(BadArg);
+
+#ifdef SUPPORT_CRC
+	if (enable_crc==1 && (sizeof(Ata) + SECTOR_SIZE * ataio_ctx.r.sectors + 4) <= pktlen) {
+		if (!aoecrc8x4_verify((uchar *)(ataio_ctx.request + 1) - (sizeof(Ata) - sizeof(Aoehdr)), 
+						ataio_ctx.r.sectors*SECTOR_SIZE + (sizeof(Ata) - sizeof(Aoehdr)))) {
+			fprintf(stderr, "Write request CRC error\n");
+			return;
+		}
+	}
+#endif
 
 	if (AOE_UNLIKELY(ataio_ctx.r.lba + ataio_ctx.r.sectors > size))
 		return ataoutofsize();

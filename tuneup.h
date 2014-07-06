@@ -50,6 +50,14 @@
 #define SHADOW_FREEZE
 
 
+//Support additional read/write data checksum verification. Normally 
+//not neccessary cause ethernet hardware already uses CRC32 for packets
+//data integrity verification and this option defeats performance. 
+//However it can be useful to diagnose hardware problems or if user if
+//paranoic enough. Note that initiator should be able to use this option
+//and should request it explicitely as extension.
+//#define SUPPORT_CRC
+
 /////////////////////////////////////////////////////////////////////////////////
 ////following options designed for debug/diagnose purposes and normally disabled
 

@@ -427,8 +427,7 @@ bfd_idle_elapsed(int t)
 			if (t>=10) {
 				--allocated_buffers;
 				++frd;
-//				munlock(sbc->data - SECTOR_SIZE, (BUFFERED_SECTORS+1)*SECTOR_SIZE);
-				free(sbc->data - page_size);//SECTOR_SIZE);
+				free(sbc->data - page_size);
 				sbc->data = 0;
 				sbc->lba = 0;
 				sbc->nsec = 0;
@@ -451,11 +450,15 @@ uchar ensure_allocated_data(struct SectorBuffer *sb)
 	if (sb->data)
 		return 1;
 
+#ifdef SUPPORT_CRC //need some space at the end for CRC
+	sb->data = valloc(2*page_size + BUFFERED_SECTORS*SECTOR_SIZE);
+#else
 	sb->data = valloc(page_size + BUFFERED_SECTORS*SECTOR_SIZE);
+#endif
+
 	if (!sb->data)
 		return 0;
-	sb->data+= page_size;//SECTOR_SIZE;
-//	mlock(sb->data, (BUFFERED_SECTORS+1)*SECTOR_SIZE);
+	sb->data+= page_size;
 	if (1==++allocated_buffers)
 		STATS_ON_BEGIN_BUFFERING;
 
@@ -697,7 +700,7 @@ bfd_getsec(struct Ata *preinit_ata_responce, vlong lba, int nsec, uchar no_callb
 		struct SectorBuffer *sbc = &sbs[i];
 		if (sbc->nsec && are_regions_overlap(lba, nsec, sbc->lba, sbc->nsec)) {
 #ifdef USE_AIO
-			while (sbc->state==SBS_READING)// || sbc->state==SBS_FLUSHING)
+			while (sbc->state==SBS_READING || sbc->state==SBS_FLUSHING)
 				process_aio_completion(0);
 #endif
 

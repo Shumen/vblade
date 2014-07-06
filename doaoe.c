@@ -89,6 +89,9 @@ static void
 resetextensions() {
 	coalesced_read = 0;
 	tags_tracking = TAGS_ANY;
+#ifdef SUPPORT_CRC
+	enable_crc = 0;
+#endif
 }
 
 
@@ -269,6 +272,12 @@ aoeextensions(Aoeextensions *fh, int n)
 				usleep(500000);
 			}
 		}
+#ifdef SUPPORT_CRC
+        else if (match_feat(feat, "crc8x4")) {
+			printf("CRC: 8x4\n");
+			enable_crc = 1;
+		}
+#endif
     }
 	return n;
 }

@@ -242,6 +242,9 @@ extern char	*progname;
 extern char	serial[Nserial+1];
 extern uchar	tags_tracking;// TAGS_*
 extern uchar	coalesced_read;
+#ifdef SUPPORT_CRC
+extern uchar	enable_crc;
+#endif
 extern int	maxscnt;
 extern char *	ifname;
 extern char *	freeeze_path;

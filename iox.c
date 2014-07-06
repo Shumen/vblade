@@ -16,7 +16,7 @@
   You should have received a copy of the GNU General Public License
   along with AoEde.  If not, see <http://www.gnu.org/licenses/>.
 */
-//IO pulmtipleXor
+//IO multipleXor
 //redirects IO requests to bfdio.c or to freeze.c with freeze/unfreeze managing
 
 #define _GNU_SOURCE
@@ -70,7 +70,7 @@ process_sigusr_request()
 			break;
 
 			case SIGUSR_REQUEST_DIE:
-				printf("Dying peacfully\n");
+				printf("Dying peacefully\n");
 				grace_exit(die_signal);
 				sigusr_request = SIGUSR_REQUEST_DIYING;
 			break;
