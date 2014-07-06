@@ -22,7 +22,7 @@
 //and its time to activate read-ahead or flush when possible  
 //optimal value must be less than sectors count by a value
 //a bit more than maximum possible MTU
-#define BUFFER_FULL_THRESHOLD	((BUFFERED_SECTORS) - 48)	//<--option
+#define BUFFER_FULL_THRESHOLD	((BUFFERED_SECTORS) - 64)	//<--option
 
 //Following option slightly improves write performance by assuming 
 //valid write operation always success and thus sending reply to

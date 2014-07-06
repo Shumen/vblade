@@ -722,8 +722,12 @@ bfd_getsec(struct Ata *preinit_ata_responce, vlong lba, int nsec, uchar no_callb
 
 				sbc->used = ++use_counter;
 				if (!nsec) {
-					if (out && !no_callback)
-						rd_callback_with_preinit_buffer(out);
+					if (out) {
+						if (!no_callback)
+							rd_callback_with_preinit_buffer(out);
+					} else
+						out+= n;
+
 					INCREMENT_STAT(rd_nice);
 
 #if READ_TRACKS && BUFFER_FULL_THRESHOLD && defined(USE_AIO)
