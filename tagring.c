@@ -192,7 +192,7 @@ tagring_check_offside(unsigned long tag)
 uchar 
 tagring_get_and_set(unsigned long tag) 
 {
-	if (!selected.ring_of_bits) {
+	if (AOE_UNLIKELY(!selected.ring_of_bits)) {
 		if (selected_id==-1 || !(selected.ring_of_bits = valloc(TAGS_IN_RING/8)))
 			return 0;
 		memset(selected.ring_of_bits, 0, TAGS_IN_RING/8);

@@ -577,7 +577,7 @@ freeze_putsec(uchar *place, vlong lba, int nsec)
 #else
 
 int freeze_putsec(uchar *data, vlong offset, int len) { return freeze_active ? -1 : bfd_putsec(data, offset, len);;}
-int freeze_getsec(uchar *data, vlong offset, int len) { return bfd_getsec(data, offset, len); }
+void freeze_getsec(struct Ata *preinit_ata_responce, vlong lba, int nsec) { bfd_getsec(preinit_ata_responce, lba, nsec, 0); }
 void freeze_start() { freeze_active = 1; }
 void freeze_flush_and_stop(unsigned int time_limit) { freeze_active = 0; }
 

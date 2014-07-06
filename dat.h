@@ -252,8 +252,12 @@ extern vlong skipped_writes;
 extern vlong skipped_packets;
 #endif
 
-#define AOE_LIKELY(x)      __builtin_expect(!!(x), 1)
-#define AOE_UNLIKELY(x)    __builtin_expect(!!(x), 0)
+#if defined(__CLANG__) || defined(__GNUC__) //todo: check support by compiler's version
+# define AOE_LIKELY(x)      __builtin_expect(!!(x), 1)
+# define AOE_UNLIKELY(x)    __builtin_expect(!!(x), 0)
 
-//#define AOE_LIKELY(x)      (x)
-//#define AOE_UNLIKELY(x)    (x)
+#else
+# define AOE_LIKELY(x)      (x)
+# define AOE_UNLIKELY(x)    (x)
+
+#endif

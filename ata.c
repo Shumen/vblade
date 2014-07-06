@@ -301,7 +301,7 @@ aoeatawrite(int pktlen, uchar dup)
  * with LBA 28 you shouldn't see an LBA of all ones.  Still, we don't
  * check for that.
  */
-void
+static void
 atactl() 
 {
 	uchar *odp = (uchar *)(ataio_ctx.reply + 1);
