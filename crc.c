@@ -2,7 +2,7 @@
   Copyright 2014, Killer{R}
   For contact information, see http://killprog.com/
 
-  This file is part of WinAoE.
+  This file is part of AoEde.
 
   WinAoE is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -20,6 +20,7 @@
 
 #include "config.h"
 #include <sys/types.h>
+#include "dat.h"
 
 #ifdef SUPPORT_CRC
 static const unsigned char crc8_table[256] = {
@@ -103,16 +104,16 @@ void aoecrc8x4_append(unsigned char *data, size_t len)
 unsigned char aoecrc8x4_verify(const unsigned char *data, size_t len)
 {
 	AOE_CRC8x4_CALC;
-    if (*data != crc1)
+    if (AOE_UNLIKELY(*data != crc1))
 		return 0;
 	++data;
-    if (*data != crc2)
+    if (AOE_UNLIKELY(*data != crc2))
 		return 0;
 	++data;
-    if (*data != crc3)
+    if (AOE_UNLIKELY(*data != crc3))
 		return 0;
 	++data;
-    if (*data != crc4)
+    if (AOE_UNLIKELY(*data != crc4))
 		return 0;
 	return 1;
 }

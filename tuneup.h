@@ -47,7 +47,7 @@
 
 //following option enabled background 'shadow' writes while main
 //blade image 'freeze'd' 
-#define SHADOW_FREEZE
+#define SHADOW_FREEZE					//<--option
 
 
 //Support additional read/write data checksum verification. Normally 
@@ -56,7 +56,7 @@
 //However it can be useful to diagnose hardware problems or if user if
 //paranoic enough. Note that initiator should be able to use this option
 //and should request it explicitely as extension.
-//#define SUPPORT_CRC
+//#define SUPPORT_CRC					//<--option
 
 /////////////////////////////////////////////////////////////////////////////////
 ////following options designed for debug/diagnose purposes and normally disabled
