@@ -28,8 +28,6 @@
 #include <malloc.h> 
 #include <unistd.h>
 #include <signal.h>
-#include <errno.h>
-#include <time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
@@ -42,16 +40,29 @@
 #include <netinet/if_ether.h>
 
 static int last_congestion = -1;
-static const unsigned long x04030201 = 0x04030201;
-static unsigned long ReverseEndianess(unsigned long x)
-{
+
+static inline unsigned long 
+ReverseEndianess(unsigned long x)
+{ 
 	return ( (((x)>>24)&0xff) | (((x)>>8)&0xff00) | (((x)<<8)&0xff0000) | (((x)<<24)&0xff000000) );
 }
 
-#define LE2HST(x)	( (1==*(unsigned char *)&x04030201) ? x : ReverseEndianess(x) )
-#define BE2HST(x)	( (4==*(unsigned char *)&x04030201) ? x : ReverseEndianess(x) )
 
-static inline void 
+#if (__BYTE_ORDER  == __LITTLE_ENDIAN) || (__BYTE_ORDER__  == __LITTLE_ENDIAN__)
+
+# define LE2HST(x)	(x)
+# define BE2HST(x)	(ReverseEndianess(x))
+
+#elif (__BYTE_ORDER  == __BIG_ENDIAN) || (__BYTE_ORDER__  == __BIG_ENDIAN__)
+
+# define LE2HST(x)	(ReverseEndianess(x))
+# define BE2HST(x)	(x)
+
+#else
+# error "Unsupported or unknown byte order"
+#endif
+
+void 
 sfd_putpkt_or_die(uchar *data, int len)
 {
 	if (putpkt(sfd, data, len) == -1) {
@@ -60,158 +71,18 @@ sfd_putpkt_or_die(uchar *data, int len)
 	}
 }
 
-
-static inline long long
-getlba(uchar cmd, uchar *p)
+void 
+preinit_reply_hdr(Aoehdr *request_hdr, Aoehdr *reply_hdr)
 {
-	uchar *px = p + 6;
-	vlong v = 0;
-
-	do {
-		v<<= 8;
-		v+= *(--px);
-	} while (px!=p);
-
-	switch (cmd) {
-	case 0x30:		// write sectors
-	case 0x20:		// read sectors
-		v&= MAXLBA28SIZE;
-		break;
-
-	case 0x34:		// write sectors ext
-	case 0x24:		// read sectors ext
-		v&= 0x0000ffffffffffffLL;	// full 48
-		break;
-	}
-	return v;
-}
-
-static void
-ataerror(Ata *op, uchar	error)	
-{
-	fprintf(stderr, "ataerror (%d): cmd=%d sectors=%d\n", error, op->cmd, op->sectors);
-
-	op->h.flags |= Error;
-	op->h.error = error;	
-	op->cmd = ERR;
-	sfd_putpkt_or_die((uchar *)op, Nata);
-}
-
-static void
-ataoutofsize(Ata *op)	
-{
-	op->err = IDNF;
-	op->cmd = DRDY | ERR;
-	sfd_putpkt_or_die((uchar *)op, Nata);
-}
-
-static void
-atareply(Ataregs *r, Ata *op) {
-	int len;
-	if ((op->aflag & Write) == 0 && (len = op->sectors) != 0) {
-		len*= SECTOR_SIZE;
-		len+= sizeof (Ata);
-	} else
-		len = Nata;
-
-	op->sectors = r->sectors;
-	op->err = r->err;
-	op->cmd = r->status;
-	sfd_putpkt_or_die((uchar *)op, len);
-}
-
-void
-aoeata(Ata *p, Ata *op, int pktlen, uchar dup)	// do ATA reqeust
-{
-#ifdef FORCE_ASYNC_WRITES
-	const uchar write_async = 1;
-#else
-	const uchar write_async = (p->aflag&Async)!=0;
-#endif
-	Ataregs r;
-	r.cmd = p->cmd;
-
-	if (!rrok(p->h.src) && r.cmd != 0xec)
-		return ataerror(op, Res);
-
-	r.lba = getlba(r.cmd, p->lba);
-	r.sectors = p->sectors;
-	switch (r.cmd)
-	{
-		case 0x30: case 0x34://write, write ext
-			if (sizeof(*p) + SECTOR_SIZE * r.sectors > pktlen) 
-				return ataerror(op, BadArg);
-
-			if (r.lba + r.sectors > size) 
-				return ataoutofsize(op);
-
-			if (dup || write_async) {
-				op->cmd = DRDY;
-				sfd_putpkt_or_die((uchar *)op, Nata);
-				if (dup) {
-#ifdef KEEP_STATS
-					++skipped_writes;
-#endif		
-					return;
-				}
-			} 
-
-			op->cmd = r.cmd;
-			atawrite(&r, (uchar *)(p+1));
-			if (!write_async) {
-				atareply(&r, op);
-			} else if (r.err == ABRT) {
-				fprintf(stderr, 
-					"Failed to complete async write  (%d, %d). Exiting to avoid data corruption.\n", 
-					r.sectors, p->sectors);
-				grace_exit(errno);
-			}			
-			break;
-
-
-		case 0x20: case 0x24://read, read ext
-			if (r.sectors > maxscnt) {
-				ataerror(op, BadArg);
-			} else if (r.lba + r.sectors > size) {
-				ataoutofsize(op);
-			} else {
-				ataread(&r, (uchar *)(op+1));
-				atareply(&r, op);
-			}
-
-			if (coalesced_read && pktlen>=(sizeof(Ata) + 1 + sizeof(AtaCoalescedRead)) ) {
-				uchar nacr = *(uchar *)(p + 1);
-				AtaCoalescedRead *acr = (AtaCoalescedRead *)((uchar *)(p + 1) + 1);
-				for (;(nacr && pktlen>=((char *)(acr+1) - (char *)p)); --nacr,++acr) {
-					r.lba = getlba(r.cmd, acr->lba);
-					r.sectors = op->sectors = acr->sectors;
-					memcpy(op->h.tag, acr->tag, sizeof(op->h.tag));
-					memcpy(op->lba, acr->lba, sizeof(op->lba));
-					memcpy(op->resvd, acr->resvd, sizeof(op->resvd));
-
-					if (r.sectors > maxscnt)  {
-						ataerror(op, BadArg);
-					} else if (r.lba + r.sectors > size)  {
-						ataoutofsize(op);
-					} else {
-						ataread(&r, (uchar *)(op+1));
-						atareply(&r, op);
-					}
-				}
-				if (nacr) 
-					fprintf(stderr, "Coalesced read truncated: nacr=%u\n", nacr);
-		    }
-			break;
-
-		case 0xec:	// identify device
-			if (r.sectors != 1 || maxscnt<1)
-				return ataerror(op, BadArg);
-
-		default:
-			atactl(&r, (uchar *)(op+1) );
-			atareply(&r, op);
-	}
-
+	memcpy(reply_hdr->dst, request_hdr->src, 6);
+	memcpy(reply_hdr->src, mac, 6);
+	memcpy(reply_hdr->tag, request_hdr->tag, sizeof(reply_hdr->tag));
+	reply_hdr->maj = shelf_net;
+	reply_hdr->min = slot;
+	reply_hdr->type = request_hdr->type;
+	reply_hdr->flags = request_hdr->flags | Resp;
+	reply_hdr->error = request_hdr->error;
+	reply_hdr->cmd = request_hdr->cmd;
 }
 
 static void
@@ -454,71 +325,66 @@ e:	return n + Nmaskhdr;
 }
 
 void
-doaoe(Aoehdr *p, Aoehdr *op, int n)
+doaoe(Aoehdr *request, Aoehdr *reply, int n)
 {
 	int len;
-	const uchar cmd = p->cmd;
-	uchar dup;
-	memcpy(op->dst, p->src, 6);
-	memcpy(op->src, mac, 6);
-	op->maj = shelf_net;
-	op->min = slot;
-	op->type = p->type;
-	op->flags = p->flags | Resp;
-	op->error = p->error;
-	op->cmd = cmd;
-	memcpy(op->tag, p->tag, sizeof(op->tag));
-	memcpy(op+1, p+1, (cmd!=ATAcmd)  ? 
-		n - sizeof(Aoehdr) : sizeof(Ata) - sizeof(Aoehdr));
+	const uchar cmd = request->cmd;
+	unsigned long tag;
 
 	switch (tags_tracking) {
-		case TAGS_INC_LE://incrementing little-endian
-			dup = tagring_process(LE2HST(*(unsigned long *)&p->tag[0]));
+		case TAGS_INC_LE://incrementing little-endian			
+			tag = LE2HST(*(unsigned long *)&request->tag[0]);
 			break;
 
 		case TAGS_INC_BE://incrementing big-endian
-			dup = tagring_process(BE2HST(*(unsigned long *)&p->tag[0]));
+			tag = BE2HST(*(unsigned long *)&request->tag[0]);
 			break;
 
 		default:
-			dup = 0;
+			tag = 0;
 	}
+
+	if (AOE_LIKELY(cmd==ATAcmd)) {
+		if (n >= Natahdr)
+			aoeata((Ata*)request, (Ata*)reply, n, tag);
+		return;
+	}
+
+	if (tag)
+		tagring_check_offside(tag);
+	preinit_reply_hdr(request, reply);
+	memcpy(reply + 1, request + 1, n - sizeof(Aoehdr));
 	
 	switch (cmd) {
-	case ATAcmd:
-		if (n < Natahdr) 
-			return;
-		return aoeata((Ata*)p, (Ata*)op, n, dup);
-
 	case Config:
 		if (n < Ncfghdr)
 			return;		
-		len = confcmd((Conf *)op, n);		
+		len = confcmd((Conf *)reply, n);		
 		break;
 	case Mask:
 		if (n < Nmaskhdr)
 			return;
-		len = aoemask((Aoemask *)op, n);
+		len = aoemask((Aoemask *)reply, n);
 		break;
 	case Resrel:
 		if (n < Nsrrhdr)
 			return;
 
-		len = aoesrr((Aoesrr *)op, n);
+		len = aoesrr((Aoesrr *)reply, n);
 		break;
 	case Extensions:
 		if (n < sizeof(Aoeextensions) )
 			return;
 
-		len = aoeextensions((Aoeextensions *)op, n);
+		len = aoeextensions((Aoeextensions *)reply, n);
 		break;
 
 	default:
-		op->error = BadCmd;
-		op->flags |= Error;
+		reply->error = BadCmd;
+		reply->flags |= Error;
 		len = n;
 	}
 	if (len > 0)
-		sfd_putpkt_or_die((uchar *)op, len);
+		sfd_putpkt_or_die((uchar *)reply, len);
 }
 

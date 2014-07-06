@@ -3,7 +3,7 @@
 //Note that high value may increase CPU usage  /(TBD: optimize such situation)
 //Comment if you don't need IO buffering 
 //NB: buffering can be neccessary to use -d arg with SOCK_RXRING enabled
-#define BUFFERS_COUNT  6				//<--option
+#define BUFFERS_COUNT  8				//<--option
 
 
 //Sequential read tracks count: up to 255
@@ -20,7 +20,9 @@
 
 //Following value used to determine if buffer is near-to-full
 //and its time to activate read-ahead or flush when possible  
-#define BUFFER_FULL_THRESHOLD	((BUFFERED_SECTORS) - 64)	//<--option
+//optimal value must be less than sectors count by a value
+//a bit more than maximum possible MTU
+#define BUFFER_FULL_THRESHOLD	((BUFFERED_SECTORS) - 48)	//<--option
 
 //Following option slightly improves write performance by assuming 
 //valid write operation always success and thus sending reply to
@@ -32,7 +34,9 @@
 #ifdef __linux__
 //Try to use PACKET_RX_RING to receive data instead of read() call
 //More CPU-effective and required for RX tags tracking (-t arg)
-# define SOCK_RXRING					//<--option
+//However on practice not using RX ring buffer sometimes faster
+//TODO: investigate why: CPU cache usage? Memory aligning?
+//# define SOCK_RXRING					//<--option
 
 //Use linux AIO to perform most IO in background
 //Requres BUFFERS_COUNT>1 and valid BUFFER_FULL_THRESHOLD defined

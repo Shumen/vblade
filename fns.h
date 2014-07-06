@@ -15,16 +15,16 @@ int	rrok(uchar *);
 
 
 // doaoe.c
-
+void sfd_putpkt_or_die(uchar *data, int len);
+void preinit_reply_hdr(Aoehdr *request_hdr, Aoehdr *reply_hdr);
 void doaoe(Aoehdr *p, Aoehdr *op, int n);
 
 
 // ata.c
 
 void	atainit(void);
-void	atactl(Ataregs *p, uchar *odp);
-void	ataread(Ataregs *p, uchar *odp);
-void	atawrite(Ataregs *p, uchar *dp);
+void	aoeata(Ata *request, Ata *reply, int pktlen, unsigned long tag);
+
 
 // bpf.c
 
@@ -71,17 +71,22 @@ update_maxscnt() {
 }
 #endif
 
-// io.c
+
+void rd_callback_preserve_header_space(Ata *ata_responce, int nret);
+void rd_callback(Ata *ata_responce, int nret);
+void rd_callback_with_preinit_buffer(int nret);
+
+// iox.c
 ssize_t iox_read_packet_fd(int fd, void *buf, size_t count);
 int iox_poll(int fd, int timeout);
 int iox_putsec(uchar *place, vlong lba, int nsec);
-int iox_getsec(uchar *place, vlong lba, int nsec);
+void iox_getsec(struct Ata *preinit_ata_responce, vlong lba, int nsec);
 void iox_flush();
 void iox_init();
 
 // freeze.c
 int freeze_putsec(uchar *data, vlong offset, int len);
-int freeze_getsec(uchar *data, vlong offset, int len);
+void freeze_getsec(struct Ata *preinit_ata_responce, vlong offset, int len);
 void freeze_start();
 void freeze_flush_and_stop(unsigned int time_limit);
 
@@ -106,7 +111,7 @@ void bfd_flush();
 
 ///Do any IO with bfd only using following IO routines.
 int bfd_putsec(uchar *place, vlong lba, int nsec);
-int bfd_getsec(uchar *place, vlong lba, int nsec);
+int bfd_getsec(struct Ata *preinit_ata_responce, vlong lba, int nsec, uchar no_callback);
 
 
 ////////////////////////////////////////////////////
@@ -135,11 +140,13 @@ tagring_reset_id(int id) {
 }
 
 
+void tagring_check_offside(unsigned long tag);
+
 ///Call this with every new tag came from client 
 ///to check if its unique and put it into selected tagring.
 ///Returns 1 if specified tag already present in ring queue.
 ///Returns 0 if it doesn't and put in into that queue.
 ///Also return 0 if no tagring currently selected
-uchar tagring_process(unsigned long tag);
+uchar tagring_get_and_set(unsigned long tag);
 
 

@@ -53,12 +53,13 @@
 int	getindx(int, char *);
 int	getea(int, char *, uchar *);
 
-#define MEM_FENCE	asm volatile("": : :"memory");  //__sync_synchronize();
+#define MEM_FENCE	asm volatile("": : :"memory");  
+//#define MEM_FENCE	__sync_synchronize();
 
 int
 dial(char *eth, int bufcnt)		// get us a raw connection to an interface
 {
-	int i, n, s;
+	int i, n, s, mtu;
 	struct sockaddr_ll sa;
 #if POISON_RECV || POISON_SEND
 	srand(time(NULL))
@@ -86,15 +87,15 @@ dial(char *eth, int bufcnt)		// get us a raw connection to an interface
 	setsockopt(s, SOL_SOCKET, SO_ATTACH_FILTER, bpf_program, sizeof(*bpf_program));
 	free_bpf_program(bpf_program);
 
-	n = getmtu(s, eth);
-    n*= bufcnt;
-
-	if (setsockopt(s, SOL_SOCKET, SO_SNDBUF, &n, sizeof(n)) < 0)
+	mtu = getmtu(s, eth);
+    n = mtu * bufcnt;
+	for (;(setsockopt(s, SOL_SOCKET, SO_SNDBUF, &n, sizeof(n)) < 0 && n>mtu); n-= mtu)
 		perror("setsockopt SOL_SOCKET, SO_SNDBUF");
 
 #ifndef SOCK_RXRING
-	if (setsockopt(s, SOL_SOCKET, SO_RCVBUF, &n, sizeof(n)) < 0)
-		perror("setsockopt SOL_SOCKET, SO_RCVBUF");
+    n = mtu * bufcnt;
+	for (;(setsockopt(s, SOL_SOCKET, SO_RCVBUF, &n, sizeof(n)) < 0 && n>mtu); n-= mtu)
+		perror("setsockopt SOL_SOCKET, SO_SNDBUF");
 #endif
 
 	return s;
@@ -406,6 +407,19 @@ roll_rx_ring_no_tags_tracking(uchar *buf)
 }
 
 
+static uchar 
+is_power_of_2(unsigned int v)
+{
+	unsigned int c = 2;
+	for (;;) {
+		if (c==v)
+			return 1;
+		c*= 2;
+		if (c>v)
+			return 0;
+	}
+}
+
 
 ////////////
 //public interface
@@ -414,23 +428,31 @@ int
 rxring_init() 
 {
 	struct tpacket_req tp;
-	rx_ring.frame_size = PAGE_ALIGN(getmtu(sfd, ifname) + 
+	rx_ring.frame_size = getmtu(sfd, ifname) + 
 				TPACKET_ALIGN(sizeof(struct tpacket_hdr)) + 
-				TPACKET_ALIGN(sizeof(struct sockaddr_ll)) + 32); 
+				TPACKET_ALIGN(sizeof(struct sockaddr_ll)) + 32; 
+	rx_ring.frame_size = PAGE_ALIGN(rx_ring.frame_size);
+	while (!is_power_of_2(rx_ring.frame_size)) rx_ring.frame_size+= PAGE_ALIGN(1);
 	rx_ring.frames = Z_ALIGN(bufcnt, 8);
 	//sometimes system fails to allocate neccessary ring space
 	//try to allocate smaller one in such case
-	for (;; rx_ring.frames-= 4) {
-		tp.tp_block_size = rx_ring.frames * rx_ring.frame_size;
-		tp.tp_block_nr = 1;
-		tp.tp_frame_size = rx_ring.frame_size;
-		tp.tp_frame_nr = rx_ring.frames;
-		if (setsockopt(sfd, SOL_PACKET, PACKET_RX_RING, (void*) &tp, sizeof(tp))==0) 
-			break;
 
-		if (rx_ring.frames<=4) {
-			perror("setsockopt() ring");
-			return -1;
+	for (tp.tp_block_nr = 1;;) {			
+		if ((rx_ring.frames%tp.tp_block_nr)==0) {
+			tp.tp_block_size = (rx_ring.frames/tp.tp_block_nr)*rx_ring.frame_size;			
+			tp.tp_frame_size = rx_ring.frame_size;
+			tp.tp_frame_nr = rx_ring.frames;
+			if (setsockopt(sfd, SOL_PACKET, PACKET_RX_RING, (void*) &tp, sizeof(tp))==0) 
+				break;
+		}
+
+		if (rx_ring.frames<++tp.tp_block_nr) {
+			if (rx_ring.frames<=4) {
+				perror("setsockopt() ring");
+				return -1;
+			}
+			rx_ring.frames-= 4;
+			tp.tp_block_nr = 1;
 		}
 	}
 
@@ -440,9 +462,9 @@ rxring_init()
 		perror("mmap() ring");
 		return -1;
 	}
-
-	printf("Initialized RX RING of %u frames * %u bytes per frame\n", 
-			rx_ring.frames, rx_ring.frame_size);
+	
+	printf("Initialized RX RING of %u frames * %u bytes per frame splitted by %u block(s)\n", 
+			rx_ring.frames, rx_ring.frame_size, tp.tp_block_nr);
 	return 0;
 }
 

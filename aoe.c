@@ -79,14 +79,14 @@ static void *
 allocate_ata_aligned_buffer(size_t sz)
 {
 	//kernel 2.6 requires 512 bytes alignment for O_DIRECT
-	//so I/O buffer align by 512 bytes
+	//however direct I/O works faster with page-aligned buffers
 	void *buf;
-	if ((buf = malloc(sz + 512)) == NULL) {
+	if ((buf = malloc(sz + page_size)) == NULL) {
 		perror("malloc");
 		grace_exit(1);
 	}
-	if ((sz = ((size_t) buf + sizeof(Ata)) % 512)!=0)
-		buf+= (512 - sz);
+	if ((sz = ((size_t) buf + sizeof(Ata)) % page_size)!=0)
+		buf+= (page_size - sz);
 
 	return buf;
 }
@@ -96,7 +96,7 @@ aoe(void)
 {
 	//jumbo frames nowadays are 9K maximum
 	//32K ought to be enough for anybody ;)
-	const size_t bufsz = 0x8000;
+	const size_t bufsz = 0x8000 - page_size;
 	int n, m;
 	void *buf, *buf_pkt_in;
 
@@ -120,13 +120,13 @@ aoe(void)
 	for (;;) {
 		Aoehdr *p;
 		n = getpkt(sfd, buf_pkt_in, bufsz);
-		if (n < 0) {
+		if (AOE_UNLIKELY(n < 0)) {
 			perror("read network");
 			grace_exit(1);
 		}
 		p = (Aoehdr *) buf_pkt_in;
 		m = packet_check(p, n);
-		if (m>=0) {
+		if (AOE_LIKELY(m>=0)) {
 			if (tags_tracking==TAGS_INC_LE || tags_tracking==TAGS_INC_BE) 
 				tagring_select(m);
 			doaoe(p, (Aoehdr *)buf, n);
@@ -251,7 +251,7 @@ main(int argc, char **argv)
 	skipped_packets = 0;
 #endif
 	int ch, omode = O_NOATIME, readonly = 0;
-
+	page_size = getpagesize();
 #ifdef USE_AIO
 # ifdef O_DIRECT
 	omode |= O_DIRECT;
@@ -342,6 +342,7 @@ main(int argc, char **argv)
 			bfd_blocks_per_sector = (uchar) (st.st_blksize / SECTOR_SIZE);
 		}
 	}
+
 	tagring_init();
 	shelf = atoi(argv[0]);
 	shelf_net = htons(shelf);

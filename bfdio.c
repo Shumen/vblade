@@ -43,7 +43,6 @@
 #include <netinet/in.h>
 #include "dat.h"
 #include "fns.h"
-
 #ifdef USE_AIO
 # include <libaio.h>
 
@@ -61,7 +60,7 @@ static int
 getsec(uchar *place, vlong lba, int nsec)
 {
 	int n = pread(bfd, place, nsec * SECTOR_SIZE, lba * SECTOR_SIZE);
-	if (n!=nsec * SECTOR_SIZE)
+	if (AOE_UNLIKELY(n!=nsec * SECTOR_SIZE))
 	{
 		perror("getsec failed");
 		printf("place=%p lba=%llu nsec=%d\n", place, lba, nsec);
@@ -73,7 +72,7 @@ static int
 putsec(uchar *place, vlong lba, int nsec)
 {
 	int n = pwrite(bfd, place, nsec * SECTOR_SIZE, lba * SECTOR_SIZE);
-	if (n!=nsec * SECTOR_SIZE)
+	if (AOE_UNLIKELY(n!=nsec * SECTOR_SIZE))
 	{
 		perror("putsec failed");
 		printf("place=%p lba=%llu nsec=%d\n", place, lba, nsec);
@@ -209,7 +208,7 @@ process_completed_aio_events(const struct io_event *ioe, int n)
 	int i;
 	for (i = 0; i<n; ++i) {
 		struct SectorBuffer *sb = (struct SectorBuffer *)(void *)ioe[i].obj;
-		if (ioe[i].res<0) {
+		if (AOE_UNLIKELY(ioe[i].res<0)) {
 #if defined(KEEP_STATS) || defined(DBG_VALIDATE)
 			fprintf(stderr, "AIO error: state=%u res=%d res2=%d\n", 
 							(unsigned int)sb->state, (int)ioe[i].res, (int)ioe[i].res2);
@@ -287,7 +286,7 @@ read_sb_async(struct SectorBuffer *sb)
 	sb->state = SBS_READING;
 	io_prep_pread(&sb->aio, bfd, sb->data, sb->nsec*SECTOR_SIZE, sb->lba*SECTOR_SIZE);
 	++aio.pending;
-	if (io_submit(aio.ctx, 1, &jobs[0])!=1) {
+	if (AOE_UNLIKELY(io_submit(aio.ctx, 1, &jobs[0])!=1)) {
 		perror("read_sb_async - io_submit");
 		sb->lba = 0;
 		sb->nsec = 0;
@@ -306,7 +305,7 @@ flush_sb_async(struct SectorBuffer *sb)
 	sb->state = SBS_FLUSHING;
 	io_prep_pwrite(&sb->aio, bfd, sb->data, sb->nsec*SECTOR_SIZE, sb->lba*SECTOR_SIZE);
 	++aio.pending;
-	if (io_submit(aio.ctx, 1, &jobs[0])!=1) {
+	if (AOE_UNLIKELY(io_submit(aio.ctx, 1, &jobs[0])!=1)) {
 		perror("flush_sb_async - io_submit");
 		sb->state = SBS_DIRTY;
 		--aio.pending;
@@ -330,9 +329,8 @@ flush_sb_sync(struct SectorBuffer *sb)
 	}
 #endif
 
-	if (putsec(&sb->data[0], sb->lba, sb->nsec)!=(sb->nsec*SECTOR_SIZE))
+	if (AOE_UNLIKELY(putsec(&sb->data[0], sb->lba, sb->nsec)!=(sb->nsec*SECTOR_SIZE)))
 		return -1;
-
 	sb->state = SBS_CLEAN;
 	return 0;
 }
@@ -421,7 +419,7 @@ bfd_idle_elapsed(int t)
 	for (i = 0; i<BUFFERS_COUNT; ++i) {
 		struct SectorBuffer *sbc = &sbs[i];
 		if (sbc->data) {
-			if (sbc->state==SBS_DIRTY) {
+			if (sbc->nsec && sbc->state==SBS_DIRTY) {
 				if (flush_sb_sync(sbc)!=0)
 					continue;
 			}
@@ -429,7 +427,8 @@ bfd_idle_elapsed(int t)
 			if (t>=10) {
 				--allocated_buffers;
 				++frd;
-				free(sbc->data);
+//				munlock(sbc->data - SECTOR_SIZE, (BUFFERED_SECTORS+1)*SECTOR_SIZE);
+				free(sbc->data - page_size);//SECTOR_SIZE);
 				sbc->data = 0;
 				sbc->lba = 0;
 				sbc->nsec = 0;
@@ -452,10 +451,11 @@ uchar ensure_allocated_data(struct SectorBuffer *sb)
 	if (sb->data)
 		return 1;
 
-	sb->data = valloc(BUFFERED_SECTORS*SECTOR_SIZE);
+	sb->data = valloc(page_size + BUFFERED_SECTORS*SECTOR_SIZE);
 	if (!sb->data)
 		return 0;
-
+	sb->data+= page_size;//SECTOR_SIZE;
+//	mlock(sb->data, (BUFFERED_SECTORS+1)*SECTOR_SIZE);
 	if (1==++allocated_buffers)
 		STATS_ON_BEGIN_BUFFERING;
 
@@ -472,7 +472,7 @@ uchar ensure_sb_clean(struct SectorBuffer *sb)
 				process_aio_completion(0);
 			} while (sb->state==SBS_FLUSHING);
 			//now it can be clean or dirty
-			if (sb->state==SBS_CLEAN)
+			if (AOE_LIKELY(sb->state==SBS_CLEAN))
 				return 1;//return if clean
 			//otherwise fall through to dirty case
 #endif
@@ -490,9 +490,6 @@ uchar ensure_sb_clean(struct SectorBuffer *sb)
 			return 1;
 	}
 }
-
-#define unaligned_memcpy(dst, src, len) \
-	memcpy((void *)(dst), (const void *)(src), (len))
 
 int 
 bfd_putsec(uchar *place, vlong lba, int nsec)
@@ -589,12 +586,7 @@ bfd_putsec(uchar *place, vlong lba, int nsec)
 		if (sb) {
 			vlong til_nsec =  lba + (vlong)nsec - sb->lba;
 			nsec*= SECTOR_SIZE;
-#ifdef SOCK_RXRING
-			unaligned_memcpy(&sb->data[(lba - sb->lba)*SECTOR_SIZE], place, nsec);
-#else
 			memcpy(&sb->data[(lba - sb->lba)*SECTOR_SIZE], place, nsec);
-#endif
-
 			sb->used = ++use_counter;
 			sb->state = SBS_DIRTY;
 			if (sb->nsec<til_nsec)  {
@@ -632,7 +624,7 @@ bfd_putsec(uchar *place, vlong lba, int nsec)
 		}
 	}
 
-//	printf("unbuffered putsec place=%p\n", place);
+	printf("unbuffered putsec place=%p\n", place);
 #ifdef USE_AIO
 	wait_aio_complete_all();
 #endif
@@ -689,12 +681,12 @@ struct ReadTrack *ReferenceReadTrack(vlong lba)
 }
 #endif
 
-int 
-bfd_getsec(uchar *place, vlong lba, int nsec)
-{
+int
+bfd_getsec(struct Ata *preinit_ata_responce, vlong lba, int nsec, uchar no_callback)
+{	
 	uchar i;
 	int out = 0;
-
+	uchar *place = (uchar *)(preinit_ata_responce + 1);
 #if READ_TRACKS
 	struct SectorBuffer *sb = 0;
 	vlong right_edge = size;
@@ -717,11 +709,23 @@ bfd_getsec(uchar *place, vlong lba, int nsec)
 				lba+= n;
 				n*= SECTOR_SIZE;
 				lba_delta*= SECTOR_SIZE;
-				memcpy(place, &sbc->data[lba_delta], n);
-				out+= n;				
-				place+= n;
+				if (out || nsec || no_callback) {
+					memcpy(place, &sbc->data[lba_delta], n);
+					out+= n;
+					place+= n;
+				} else {
+					if (lba_delta)
+						rd_callback_preserve_header_space((Ata*)(&sbc->data[lba_delta]) - 1, n);
+					else
+						rd_callback((Ata*)(&sbc->data[0]) - 1, n);
+				}
+
 				sbc->used = ++use_counter;
 				if (!nsec) {
+					if (out && !no_callback)
+						rd_callback_with_preinit_buffer(out);
+					INCREMENT_STAT(rd_nice);
+
 #if READ_TRACKS && BUFFER_FULL_THRESHOLD && defined(USE_AIO)
 					if (rt->weight>=15 && (n + lba_delta)>=(BUFFER_FULL_THRESHOLD*SECTOR_SIZE)) {
 						vlong lba_ahead = sbc->lba + sbc->nsec + BUFFERED_SECTORS;//one step futher
@@ -754,7 +758,6 @@ bfd_getsec(uchar *place, vlong lba, int nsec)
 						}
 					}
 #endif
-					INCREMENT_STAT(rd_nice);
 					dbg_validate_buffers("get - after1");
 					return out;
 				}
@@ -769,8 +772,12 @@ bfd_getsec(uchar *place, vlong lba, int nsec)
 				right_edge = 0;//avoid intersecting buffering 
 			}
 			else {
-				if (!ensure_sb_clean(sbc))
+				if (!ensure_sb_clean(sbc)) {
+					if (!no_callback)
+						rd_callback_with_preinit_buffer(-1);
 					return -1;
+				}
+
 
 				sbc->lba = 0;
 				sbc->nsec = 0;
@@ -800,11 +807,19 @@ bfd_getsec(uchar *place, vlong lba, int nsec)
 		nret = read_sb_sync(sb);
 		nsec*= SECTOR_SIZE;
 		if (nret>=nsec) {
-			sb->nsec = nret/SECTOR_SIZE;
-			memcpy(place, sb->data, nsec);
 			INCREMENT_STAT(rd_preempt);
 			dbg_validate_buffers("get - after2");
-			return out + nsec;
+			sb->nsec = nret/SECTOR_SIZE;
+			if (!out && !no_callback) {
+				rd_callback(((Ata *)&sb->data[0]) - 1, nsec);
+				return nsec;
+			}
+
+			memcpy(place, sb->data, nsec);
+			out+= nsec;
+			if (!no_callback)
+				rd_callback_with_preinit_buffer(out);
+			return out;
 		}
 
 		sb->lba = 0;
@@ -816,7 +831,10 @@ bfd_getsec(uchar *place, vlong lba, int nsec)
 	INCREMENT_STAT(rd_miss);
 	nsec = getsec(place, lba, nsec);	
 	dbg_validate_buffers("get - after3");	
-	return  (nsec>0) ? out + nsec : out;
+	if (nsec>0) out+= nsec;
+	if (!no_callback)
+		rd_callback_with_preinit_buffer(out);
+	return out;
 }
 
 void 
@@ -844,7 +862,14 @@ void bfd_init() {};
 int bfd_idle_begin() {return -1; };
 void bfd_idle_elapsed(int t) {}; 
 int bfd_putsec(uchar *place, vlong lba, int nsec) { return putsec(place, lba, nsec); }
-int bfd_getsec(uchar *place, vlong lba, int nsec) { return getsec(place, lba, nsec);}
+int
+bfd_getsec(struct Ata *preinit_ata_responce, vlong lba, int nsec, uchar no_callback) 
+{ 
+	nsec = getsec((uchar *)(preinit_ata_responce + 1), lba, nsec);
+	if (!no_callback)
+		rd_callback_with_preinit_buffer(nsec);
+	return nsec;
+}
 void bfd_flush() {} ;
 
 #endif

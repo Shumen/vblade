@@ -70,6 +70,7 @@ process_sigusr_request()
 			break;
 
 			case SIGUSR_REQUEST_DIE:
+				printf("Dying peacfully\n");
 				grace_exit(die_signal);
 				sigusr_request = SIGUSR_REQUEST_DIYING;
 			break;
@@ -77,12 +78,14 @@ process_sigusr_request()
 	}
 }
 
+static time_t tm_last_long_flush = 0;
+
 int 
 iox_poll(int fd, int timeout) 
 {
 	struct pollfd pollset;
 	struct timespec ts;
-	time_t tms = 0, tm;
+	time_t tms = 0, tm;	
 	int r;
 	for (;;) {
 		pollset.fd = fd;
@@ -90,10 +93,16 @@ iox_poll(int fd, int timeout)
 		pollset.revents = 0;
 
 		process_sigusr_request();
-		if (freeze_stopping) {//do flush instead of idle waiting
-			if (!tms) time(&tms);
-			freeze_flush_and_stop(1);
-			if (freeze_stopping) {
+		if (AOE_UNLIKELY(freeze_stopping)) {//do flush instead of idle waiting
+			time(&tm);
+			if (!tms) tms = tm;
+			if (!tm_last_long_flush) tm_last_long_flush = tm;
+			if (tm<tm_last_long_flush || tm>(tm_last_long_flush+2)) {
+				freeze_flush_and_stop(1);
+				time(&tm_last_long_flush);
+			}
+
+			if (AOE_LIKELY(freeze_stopping)) {
 				ts.tv_sec = 0;
 				ts.tv_nsec = 0;
 				r = ppoll(&pollset, 1, &ts, &sst_notusr);
@@ -137,13 +146,18 @@ iox_read_packet_fd(int fd, void *buf, size_t count)
 	sigprocmask(SIG_UNBLOCK, &sst_usr, NULL);
 	for (;;)
 	{
-		process_sigusr_request();
-		if (freeze_stopping) {
-			if (iox_poll(fd, 10)<=0)//it will take care about unfreezing
+		if (AOE_UNLIKELY(freeze_stopping)) {
+			if (iox_poll(fd, 10)<=0){ //it will take care about unfreezing
 				continue;
+			}
 		}
 		r = read(fd, buf, count);
-		if (r!=-1 || errno!=EINTR) break;
+		if (AOE_LIKELY(r!=-1 || errno!=EINTR)) break;
+		if (AOE_UNLIKELY(sigusr_request)) {
+			sigprocmask(SIG_BLOCK, &sst_usr, NULL);
+			process_sigusr_request();
+			sigprocmask(SIG_UNBLOCK, &sst_usr, NULL);
+		}
 	}
 	sigprocmask(SIG_BLOCK, &sst_usr, NULL);
 	process_sigusr_request();
@@ -190,15 +204,16 @@ iox_putsec(uchar *place, vlong lba, int nsec)
 	}
 }
 
-int 
-iox_getsec(uchar *place, vlong lba, int nsec)
+void
+iox_getsec(struct Ata *preinit_ata_responce, vlong lba, int nsec)
 {
 	process_sigusr_request();
-	if (!freeze_active)
-		return bfd_getsec(place, lba, nsec);
-
-	iox_check_for_inrequest_freeze_flush();
-	return freeze_getsec(place, lba, nsec);
+	if (freeze_active) {
+		iox_check_for_inrequest_freeze_flush();
+		freeze_getsec(preinit_ata_responce, lba, nsec);
+	} else {
+		bfd_getsec(preinit_ata_responce, lba, nsec, 0); 
+	}
 }
 
 void 
@@ -244,6 +259,10 @@ handle_sigusr2(int signal)
 void 
 iox_init()
 {
+	struct sigaction sa;
+	memset(&sa, 0, sizeof(sa));
+    sigfillset(&sa.sa_mask);
+
 	bfd_init();
 	sigemptyset(&sst_usr);
 	sigaddset(&sst_usr, SIGUSR1);
@@ -252,11 +271,16 @@ iox_init()
 	sigdelset(&sst_notusr, SIGUSR1);
 	sigdelset(&sst_notusr, SIGUSR2);
 
-	signal(SIGINT, handle_deadly_signal);
-    signal(SIGTERM, handle_deadly_signal);
-	signal(SIGQUIT, handle_deadly_signal);
-    signal(SIGKILL, handle_deadly_signal);
-    signal(SIGUSR1, handle_sigusr1);
-    signal(SIGUSR2, handle_sigusr2);
+	sa.sa_handler = &handle_deadly_signal;
+	sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
+	sigaction(SIGQUIT, &sa, NULL);
+    sigaction(SIGKILL, &sa, NULL);
+
+	sa.sa_handler = &handle_sigusr1;
+	sigaction(SIGUSR1, &sa, NULL);
+
+	sa.sa_handler = &handle_sigusr2;
+	sigaction(SIGUSR2, &sa, NULL);
 }
 

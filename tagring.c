@@ -1,21 +1,3 @@
-/*
-  Copyright 2014, Killer{R}
-  For contact information, see http://killprog.com/
-
-  This file is part of AoEde.
-
-  AoEde is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 2 of the License.
-
-  AoEde is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-  along with AoEde.  If not, see <http://www.gnu.org/licenses/>.
-*/
 #define _GNU_SOURCE
 #include "config.h"
 #include <stdio.h>
@@ -56,6 +38,7 @@ static struct tagring
 	unsigned long maximum_tag;
 	unsigned int maximum_tag_index;
 	uchar *ring_of_bits;
+	uchar have_something;
 } tagrings[Nmasks], selected;
 
 static int selected_id = -1;
@@ -65,6 +48,7 @@ static inline void
 set_bit(unsigned int index)  
 { 
 	selected.ring_of_bits[index/8]|= (1<<(index%8)); 
+	selected.have_something = 1;
 }
 
 //static inline uchar get_bit(unsigned int index)
@@ -73,11 +57,13 @@ set_bit(unsigned int index)
 static inline uchar 
 get_set_bit(unsigned int index) 
 {
-	const uchar oct = selected.ring_of_bits[index/8], bm = ((uchar)1<<(index%8));
+	const uchar bm = ((uchar)1<<(index%8));
+	const uchar oct = selected.ring_of_bits[index/=8];
 	if (oct&bm) 
 		return 1;
 
-	selected.ring_of_bits[index/8] = oct | bm;
+	selected.ring_of_bits[index] = oct | bm;
+	selected.have_something = 1;
 	return 0;
 }
 
@@ -101,7 +87,7 @@ static void //resets [0, index)
 reset_bits_to(unsigned int index) 
 {
 	unsigned int oct_index;
-	if (index>8) {
+	if (index>=8) {
 		oct_index = index/8;
 		memset(&selected.ring_of_bits[0], 0, oct_index);
 		index&= 7;
@@ -186,8 +172,25 @@ tagring_reset()
 		memset(selected.ring_of_bits, 0, TAGS_IN_RING/8);
 }
 
+void
+tagring_check_offside(unsigned long tag) 
+{
+	if (!selected.ring_of_bits)
+		return;
+
+	if ( (tag>selected.maximum_tag && tag>(selected.maximum_tag+2*TAGS_IN_RING) ) ||
+		(tag<selected.maximum_tag && (tag+TAGS_IN_RING)<selected.maximum_tag ) ) {
+		selected.maximum_tag = tag;
+		selected.maximum_tag_index = (TAGS_IN_RING/2);
+		if (selected.have_something) {
+			memset(&selected.ring_of_bits[0], 0, TAGS_IN_RING/8);
+			selected.have_something = 0;
+		}
+	}
+}
+
 uchar 
-tagring_process(unsigned long tag) 
+tagring_get_and_set(unsigned long tag) 
 {
 	if (!selected.ring_of_bits) {
 		if (selected_id==-1 || !(selected.ring_of_bits = valloc(TAGS_IN_RING/8)))
@@ -207,7 +210,7 @@ tagring_process(unsigned long tag)
 			return 0;
 		}
 
-		index-= (TAGS_IN_RING - selected.maximum_tag_index);
+		index-= TAGS_IN_RING; //index-= (TAGS_IN_RING - selected.maximum_tag_index);
 
 		if (index<selected.maximum_tag_index) {
 			reset_bits_to(index);
@@ -238,7 +241,7 @@ tagring_process(unsigned long tag)
 
 	selected.ring_of_bits[0] = 1;
 	memset(&selected.ring_of_bits[1], 0, (TAGS_IN_RING/8)-1);
-
+	selected.have_something = 1;
 	//...that actually does same thing as this slower code:
 	//set_bit(0);
 	//reset_bits_from(1);

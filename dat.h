@@ -21,7 +21,7 @@ enum {
 #define	makedev(x, y)	((x) << 24 | (y))
 
 #define Z_ALIGN(x, z)        (((x)+(z)-1)&~((z)-1))
-#define PAGE_ALIGN(x)        Z_ALIGN(x, getpagesize())
+#define PAGE_ALIGN(x)        Z_ALIGN(x, page_size)
 
 
 //Set in stone, do not change
@@ -161,11 +161,7 @@ enum {
 
 	Nretries = 3,
 	Nconfig = 1024,
-#ifdef SOCK_RXRING
 	Bufcount = 64,
-#else
-	Bufcount = 16,
-#endif
 	/* mask commands */
 	Mread= 0,	
 	Medit,
@@ -224,7 +220,7 @@ enum {
 
 enum { MAXLBA28SIZE = 0x0fffffff };	
 
-
+extern unsigned int page_size;
 extern uchar freeze_stopping;
 extern uchar freeze_active;
 
@@ -255,3 +251,9 @@ extern vlong	freeeze_size_limit;
 extern vlong skipped_writes;
 extern vlong skipped_packets;
 #endif
+
+#define AOE_LIKELY(x)      __builtin_expect(!!(x), 1)
+#define AOE_UNLIKELY(x)    __builtin_expect(!!(x), 0)
+
+//#define AOE_LIKELY(x)      (x)
+//#define AOE_UNLIKELY(x)    (x)

@@ -13,7 +13,7 @@ includedir=${prefix}/include
 O=tagring.o bfdio.o freeze.o iox.o doaoe.o aoe.o bpf.o ${PLATFORM}.o ata.o dat.o
 CFLAGS += -Wall -g -O2 -I${includedir}
 CC = gcc
-L=
+L = 
 
 ifeq ($(PLATFORM), linux)
     L += -laio

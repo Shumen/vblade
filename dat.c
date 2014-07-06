@@ -11,6 +11,7 @@ char	config[Nconfig] = {0};
 int	nconfig = 0;
 int	bufcnt = Bufcount;
 int	shelf = 0, slot = 0;
+unsigned int page_size = 0;
 ushort  shelf_net = 0, type_net = 0;
 uchar	mac[6] = {0};
 int	bfd = 0;		// block file descriptor

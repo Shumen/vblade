@@ -410,36 +410,40 @@ freeze_region_probably_has_non_dirty(unsigned int segment_index, unsigned int in
 	}
 }
 
-int 
-freeze_getsec(uchar *place, vlong lba, int nsec)
+void
+freeze_getsec(struct Ata *preinit_ata_responce, vlong lba, int nsec)
 {
 	struct ReadRegion rr = {0, 0};	
 	DECLARE_INITIAL_IO_INDEXES(lba, segment_index, index);
 	int rv;
 	uchar all;
+	uchar *place;
 	struct FreezeSegment *seg;
 	struct FreezeSegmentBitmap *bitmap;
 
-	if (!freeeze_path || !freeze_active)
-		return bfd_getsec(place, lba, nsec);
+	if (!freeeze_path || !freeze_active) {
+		bfd_getsec(preinit_ata_responce, lba, nsec, 0);
+		return;
+	}
 
 
 	if (freeze_region_probably_has_non_dirty(segment_index, index, nsec)) {
-		rv = bfd_getsec(place, lba, nsec);
+		rv = bfd_getsec(preinit_ata_responce, lba, nsec, 1);
 		if (rv<=0)
-			return rv;
+			return rd_callback_with_preinit_buffer(rv);
 
 		nsec = DIV_CEIL(rv, SECTOR_SIZE);
 	}
 	else
 		rv = nsec * SECTOR_SIZE;
 
+	place = (uchar*)(preinit_ata_responce + 1);
 	for (;;) {
 		for (;;) {
 			if (fastbitmap_get(FBI_ANY(segment_index))) break;
 			READ_REGION_NOT_ACTIVE(rr, place);
 			if (nsec<=(SECTORS_PER_SEGMENT - index))
-				return rv;
+				return rd_callback_with_preinit_buffer(rv);
 			nsec-= (SECTORS_PER_SEGMENT - index);
 			lba+= (SECTORS_PER_SEGMENT - index);
 			place+= (SECTORS_PER_SEGMENT - index)*SECTOR_SIZE;
@@ -448,7 +452,7 @@ freeze_getsec(uchar *place, vlong lba, int nsec)
 		}		
 		seg = lookup_stgbitmap_seg(segment_index, &bitmap);
 		if (!seg)
-			return -1;
+			return rd_callback_with_preinit_buffer(-1);
 
 		all = fastbitmap_get(FBI_ALL(segment_index));
 		for (;;) {
@@ -461,7 +465,7 @@ freeze_getsec(uchar *place, vlong lba, int nsec)
 			place+= SECTOR_SIZE;
 			if (!--nsec) {
 				READ_REGION_NOT_ACTIVE(rr, place);
-				return rv;
+				return rd_callback_with_preinit_buffer(rv);
 			}
 			if (++index == SECTORS_PER_SEGMENT) break;
 		}

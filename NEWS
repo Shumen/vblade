@@ -1,4 +1,11 @@
 -*- change-log -*-
+2014-07-06 Killer{R} <support@killprog.com>
+	Avoid memcpy when possible during buffered read (send directly from buffer memory)
+	SOCK_RXRING option is off by default (it appeared that stupid but aligned buffer often faster)
+	All IO buffers now aligned to page boundary instead of 512 bytes. It also sometimes faster
+	Fixed long delay on exit when compiled without SOCK_RXRING
+	More flexible selecting blocks/frames count for mapped buffer (if SOCK_RXRING enabled)
+
 2014-06-22 Killer{R} <support@killprog.com>
 	added Freeze feature
 	AIO optimized for FS/device block sizes >512 bytes
