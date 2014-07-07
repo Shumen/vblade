@@ -159,7 +159,7 @@ atareply(Ata *ata_responce) {
 	ata_responce->cmd = ataio_ctx.r.status;
 
 #ifdef SUPPORT_CRC
-	if (len>Nata) {
+	if (enable_crc==1 && len>Nata) {
 		uchar saved_bytes[4];
 	    memcpy(&saved_bytes[0], ((uchar *)ata_responce) + len, sizeof(saved_bytes));
 		aoecrc8x4_append(((uchar *)ata_responce) + sizeof(Aoehdr), len - sizeof(Aoehdr));
