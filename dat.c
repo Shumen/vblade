@@ -13,19 +13,27 @@ int	bufcnt = Bufcount;
 int	shelf = 0, slot = 0;
 unsigned int page_size = 0;
 ushort  shelf_net = 0, type_net = 0;
-uchar	mac[6] = {0};
-int	bfd = 0;		// block file descriptor
-int	sfd = 0;		// socket file descriptor
+int	bfd = -1;		// block file descriptors
+#if !defined(MAX_NICS) || (MAX_NICS>1)
+int	niccnt = 0;		// opened socket file descriptors count
+#endif
+
+
+#ifdef MAX_NICS
+struct NIC nics[MAX_NICS] = {{0}};
+#else
+struct NIC *nics = 0;
+#endif
+int		curnic = 0;
+
 vlong	size = 0;		// size of blade
 char	*progname = 0;
-char	serial[Nserial+1];
+char	serial[Nserial+1] = {0};
 uchar   tags_tracking = 0;
 uchar	coalesced_read = 0;
 #ifdef SUPPORT_CRC
 uchar	enable_crc = 0;
 #endif
-int	maxscnt = 0;
-char	*ifname = 0;
 char	*freeeze_path = 0;
 vlong	freeeze_size_limit = 0;
 uchar	bfd_blocks_per_sector = 1;

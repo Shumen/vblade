@@ -42,7 +42,7 @@
 static int last_congestion = -1;
 
 static inline unsigned long 
-ReverseEndianess(unsigned long x)
+reverse_endianess(unsigned long x)
 { 
 	return ( (((x)>>24)&0xff) | (((x)>>8)&0xff00) | (((x)<<8)&0xff0000) | (((x)<<24)&0xff000000) );
 }
@@ -51,39 +51,16 @@ ReverseEndianess(unsigned long x)
 #if (defined(__BYTE_ORDER) && __BYTE_ORDER  == __LITTLE_ENDIAN) || (defined(__BYTE_ORDER__) &&  __BYTE_ORDER__  == __LITTLE_ENDIAN__)
 
 # define LE2HST(x)	(x)
-# define BE2HST(x)	(ReverseEndianess(x))
+# define BE2HST(x)	(reverse_endianess(x))
 
 #elif (defined(__BYTE_ORDER) && __BYTE_ORDER  == __BIG_ENDIAN) || (defined(__BYTE_ORDER__) &&  __BYTE_ORDER__  == __BIG_ENDIAN__)
 
-# define LE2HST(x)	(ReverseEndianess(x))
+# define LE2HST(x)	(reverse_endianess(x))
 # define BE2HST(x)	(x)
 
 #else
 # error "Unsupported or unknown byte order"
 #endif
-
-void 
-sfd_putpkt_or_die(uchar *data, int len)
-{
-	if (putpkt(sfd, data, len) == -1) {
-		perror("sfd_putpkt_or_die: write to network");
-		grace_exit(1);
-	}
-}
-
-void 
-preinit_reply_hdr(Aoehdr *request_hdr, Aoehdr *reply_hdr)
-{
-	memcpy(reply_hdr->dst, request_hdr->src, 6);
-	memcpy(reply_hdr->src, mac, 6);
-	memcpy(reply_hdr->tag, request_hdr->tag, sizeof(reply_hdr->tag));
-	reply_hdr->maj = shelf_net;
-	reply_hdr->min = slot;
-	reply_hdr->type = request_hdr->type;
-	reply_hdr->flags = request_hdr->flags | Resp;
-	reply_hdr->error = request_hdr->error;
-	reply_hdr->cmd = request_hdr->cmd;
-}
 
 static void
 resetextensions() {
@@ -99,7 +76,7 @@ resetextensions() {
 
 // yes, this makes unnecessary copies.
 
-int
+static int
 confcmd(Conf *p, int payload)	// process conf request
 {
 	int len;	
@@ -142,7 +119,7 @@ confcmd(Conf *p, int payload)	// process conf request
 	memmove(p->data, config, nconfig);
 	p->len = htons(nconfig);
 	p->bufcnt = htons(bufcnt);
-	p->scnt = maxscnt;
+	p->scnt = nics[curnic].maxscnt;
 	p->firmware = htons(FWV);
 	p->vercmd = 0x10 | QCMD(p);	// aoe v.1
 	return nconfig + sizeof *p - sizeof p->data;
@@ -286,11 +263,11 @@ static int
 aoemask(Aoemask *mh, int len)
 {
 	Mdir *md, *mdi, *mde;
-	uchar *e;
+//	uchar *e;
 	int i, n;
 
 	n = 0;
-	e = (uchar *) mh + len;
+//	e = (uchar *) mh + len;
 	md = mdi = (Mdir *) ((uchar *)mh + Nmaskhdr);
 	switch (mh->cmd) {
 	case Medit:
@@ -339,14 +316,15 @@ doaoe(Aoehdr *request, Aoehdr *reply, int n)
 	int len;
 	const uchar cmd = request->cmd;
 	unsigned long tag;
-
 	switch (tags_tracking) {
 		case TAGS_INC_LE://incrementing little-endian			
-			tag = LE2HST(*(unsigned long *)&request->tag[0]);
+			memcpy(&tag, &request->tag[0], 4);
+			tag = LE2HST(tag);
 			break;
 
 		case TAGS_INC_BE://incrementing big-endian
-			tag = BE2HST(*(unsigned long *)&request->tag[0]);
+			memcpy(&tag, &request->tag[0], 4);
+			tag = BE2HST(tag);
 			break;
 
 		default:

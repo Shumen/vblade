@@ -235,7 +235,7 @@ rd_callback_with_preinit_buffer(int nret)
 static void
 aoeataread(int pktlen)
 {
-	if (AOE_UNLIKELY(ataio_ctx.r.sectors > maxscnt))
+	if (AOE_UNLIKELY(ataio_ctx.r.sectors > nics[curnic].maxscnt))
 		ataerror(BadArg);
 	else if (AOE_UNLIKELY(ataio_ctx.r.lba + ataio_ctx.r.sectors > size))
 		ataoutofsize();
@@ -252,7 +252,7 @@ aoeataread(int pktlen)
 			memcpy(&ataio_ctx.request->lba, acr->lba, sizeof(ataio_ctx.request->lba) + sizeof(ataio_ctx.request->resvd));
 //			memcpy(request->resvd, acr->resvd, sizeof(request->resvd));
 
-			if (AOE_UNLIKELY(ataio_ctx.r.sectors > maxscnt))
+			if (AOE_UNLIKELY(ataio_ctx.r.sectors > nics[curnic].maxscnt))
 				ataerror(BadArg);
 			else if (AOE_UNLIKELY(ataio_ctx.r.lba + ataio_ctx.r.sectors > size))
 				ataoutofsize();
@@ -328,7 +328,7 @@ atactl()
 	ushort *ip;
 	switch (ataio_ctx.r.cmd) {
 	case 0xec:		// identify device
-		if (AOE_UNLIKELY(ataio_ctx.r.sectors != 1 || maxscnt<1))
+		if (AOE_UNLIKELY(ataio_ctx.r.sectors != 1 || nics[curnic].maxscnt<1))
 			return ataerror(BadArg);
 
 		memcpy(odp, ident, SECTOR_SIZE);
@@ -383,6 +383,7 @@ aoeata(Ata *request, Ata *reply, int pktlen, unsigned long tag)	// do ATA reqeus
 			break;
 
 		case 0x30: case 0x34://write, write ext
+//			printf("write @ %p\n", request+1);
 			aoeatawrite(pktlen, (tag && tagring_get_and_set(tag)) );
 			break;
 

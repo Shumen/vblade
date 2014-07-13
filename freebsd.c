@@ -213,13 +213,13 @@ static int pktn = 0;
 static uchar *pktbp = NULL;
 
 int
-getpkt(int fd, uchar *buf, int sz)
+getpkt(uchar *buf, int sz)
 {
 	register struct bpf_hdr *bh;
 	register int pktlen, retlen;
 
 	if (pktn <= 0) { 
-		if ((pktn = iox_read_packet_fd(fd, pktbuf, pktbufsz)) < 0) {
+		if ((pktn = iox_read_sfd(pktbuf, pktbufsz)) < 0) {
 			perror("read");
 			grace_exit(1);
 		}
@@ -240,13 +240,13 @@ getpkt(int fd, uchar *buf, int sz)
 }
 
 int
-putpkt(int fd, uchar *buf, int sz)
+putpkt(uchar *buf, int sz)
 {
-	return write(fd, buf, sz);
+	return write(nics[curnic].sfd, buf, sz);
 }
 
 int
-getmtu(int fd, char *name)
+getmtu(int s, char *name)
 {
 	return 1500;
 }

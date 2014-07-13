@@ -40,39 +40,48 @@
 #include "fns.h"
 #include <netinet/if_ether.h>
 
-void
-aoead(int fd)	// advertise the virtual blade
+static void
+aoead()	// advertise the virtual blade
 {
-	update_maxscnt();
-	uchar buf[2000];
-	Conf *p;
+	update_maxscnt();	
+	Conf *p = (Conf *)alloca(2000);
 	int i;
-
-	p = (Conf *)buf;
 	memset(p, 0, sizeof *p);
 	memset(p->h.dst, 0xff, 6);
-	memmove(p->h.src, mac, 6);
+	memcpy(p->h.src, nics[curnic].mac, 6);
 	p->h.type = type_net;
 	p->h.flags = Resp;
 	p->h.maj = shelf_net;
 	p->h.min = slot;
 	p->h.cmd = Config;
 	p->bufcnt = htons(bufcnt);
-	p->scnt = maxscnt;
+	p->scnt = nics[curnic].maxscnt;
 	p->firmware = htons(FWV);
 	p->vercmd = 0x10 | Qread;
 	memcpy(p->data, config, nconfig);
 	p->len = htons(nconfig);
 	if (nmasks == 0)
-	if (putpkt(fd, buf, sizeof *p - sizeof p->data + nconfig) == -1) {
+	if (putpkt((uchar *)p, sizeof *p - sizeof p->data + nconfig) == -1) {
 		perror("putpkt aoe id");
-		return;
 	}
+
 	for (i=0; i<nmasks; i++) {
 		memcpy(p->h.dst, &masks[i*Alen], Alen);
-		if (putpkt(fd, buf, sizeof *p - sizeof p->data + nconfig) == -1)
+		if (putpkt((uchar *)p, sizeof *p - sizeof p->data + nconfig) == -1)
 			perror("putpkt aoe id");
 	}
+}
+
+static void 
+aoeready()
+{
+	int n, prevcurnic = curnic;
+	for (n = 0; n<niccnt; ++n) {
+		curnic = n;
+		aoead();
+	}
+	curnic = prevcurnic;
+	malloc_trim(0);
 }
 
 static void *
@@ -91,7 +100,7 @@ allocate_ata_aligned_buffer(size_t sz)
 	return buf;
 }
 
-void 
+static void 
 aoe(void) 
 {
 	//jumbo frames nowadays are 9K maximum
@@ -107,7 +116,7 @@ aoe(void)
 	buf =  allocate_ata_aligned_buffer(bufsz);
 #ifdef SOCK_RXRING
 	if (rxring_init()!=-1) {
-		aoead(sfd);
+		aoeready();
 		rxring_roll(buf);	
 		rxring_deinit();
 		grace_exit(1);
@@ -116,10 +125,10 @@ aoe(void)
 #endif
 
 	buf_pkt_in = allocate_ata_aligned_buffer(bufsz);
-	aoead(sfd);
+	aoeready();
 	for (;;) {
 		Aoehdr *p;
-		n = getpkt(sfd, buf_pkt_in, bufsz);
+		n = getpkt(buf_pkt_in, bufsz);
 		if (AOE_UNLIKELY(n < 0)) {
 			perror("read network");
 			grace_exit(1);
@@ -144,26 +153,26 @@ aoe(void)
 	}
 }
 
-void
-usage(void)
+static void
+print_usage_and_die(void)
 {
 	fprintf(stderr, "AoEde project. (http://aoede.sourceforge.net/)\n");
 	fprintf(stderr, "This application licensed under the GPLv2 (http://www.gnu.org/licenses/gpl-2.0.html)\n");
 	fprintf(stderr, "This work based on vblade that is created by CORAID (www.coraid.com)\n");
 
-	fprintf(stderr, "usage: %s [-b bufcnt] [-d ] [-s] [-r] [-t] [-T] [ -m mac[,mac...] ] shelf slot netif filename\n", 
+	fprintf(stderr, "usage: %s [-b bufcnt] [-f path[,size]] [-d ] [-s] [-r] [-t] [-T] [ -m mac[,mac...] ] shelf slot netif1 [netif2 [..]]] filename\n", 
 		progname);
 	fprintf(stderr, "options:\n");
 	fprintf(stderr, " -b  specify socket x-fer buffers in MTU units (linux only)\n");
+	fprintf(stderr, " -f  specify freeze storage with optional size limit\n");
 	fprintf(stderr, " -r  give only read access to disk image\n");
 	fprintf(stderr, " -m  restrict accessing disk only from specified mac address(es)\n");
-	
 	
 	grace_exit(1);
 }
 
 /* parseether from plan 9 */
-int
+static int
 parseether(uchar *to, char *from)
 {
 	char nip[4];
@@ -186,7 +195,7 @@ parseether(uchar *to, char *from)
 	return 0;
 }
 
-void
+static void
 setmask(char *ml)
 {
 	char *p;
@@ -202,6 +211,16 @@ setmask(char *ml)
 		else
 			nmasks++;
 	}
+}
+
+static void
+setserial(char *f, int sh, int sl)
+{
+	char h[32];
+
+	h[0] = 0;
+	gethostname(h, sizeof h);
+	snprintf(serial, Nserial, "%d.%d:%.*s", sh, sl, (int) sizeof h, h);
 }
 
 int
@@ -231,26 +250,94 @@ rrok(uchar *ea)
 	return ok;
 }
 
-void
-setserial(char *f, int sh, int sl)
+static void
+open_bfd_or_die(char *filename, int omode)
 {
-	char h[32];
+	struct stat st;
+	uchar readonly = ((omode&O_RDWR)!=O_RDWR);
+	bfd = open(filename, omode);
+	if (bfd == -1) {
+		perror("open");
+		grace_exit(1);
+	}
+	if (!readonly && flock(bfd, LOCK_EX|LOCK_NB)<0) {
+		perror("flock");
+		grace_exit(1);
+	}
+	if (fstat(bfd, &st)==0) {
+		if (st.st_blksize > SECTOR_SIZE && 
+			st.st_blksize < (0x100*SECTOR_SIZE) && 
+			(st.st_blksize % SECTOR_SIZE)==0) {
+			bfd_blocks_per_sector = (uchar) (st.st_blksize / SECTOR_SIZE);
+		}
+	}
 
-	h[0] = 0;
-	gethostname(h, sizeof h);
-	snprintf(serial, Nserial, "%d.%d:%.*s", sh, sl, (int) sizeof h, h);
+	size = getsize(bfd);
+	size /= SECTOR_SIZE;
+	if (size==0) {
+		fprintf(stderr, "Empty exported file/device.\n");
+		grace_exit(1);
+	}
+
+	printf("pid %ld: e%d.%d, %lld sectors%s%s%s, block/sector: %u\n",
+		(long) getpid(), shelf, slot, size,
+		readonly ? " O_RDONLY" : " O_RDWR",  
+
+#ifdef O_DIRECT
+		(omode&O_DIRECT) ? " O_DIRECT" : "",
+#else
+		"",
+#endif
+
+#ifdef O_DSYNC 
+		(omode&O_DSYNC) ? " O_DSYNC" : "",
+#else
+		(omode&O_SYNC) ? " O_SYNC" : "",
+#endif
+
+		bfd_blocks_per_sector);
+}
+
+static void
+open_nics_or_die(char **names)
+{
+#ifndef MAX_NICS
+	nics = (struct NIC *)malloc(niccnt * sizeof(struct NIC));
+	if (!nics) {
+		perror("malloc");
+		grace_exit(1);
+	}
+	memset(nics, 0, niccnt * sizeof(struct NIC));
+#endif
+
+	for (curnic = 0; curnic<niccnt; ++names, ++curnic) {
+		printf("NIC %s: ", *names);
+		if ( (nics[curnic].sfd = dial(*names, bufcnt))<0) {
+			perror("dial");
+			grace_exit(1);
+		}
+		if (getea(nics[curnic].sfd, *names, nics[curnic].mac)<0) {
+			perror("getea");
+			grace_exit(1);
+		}
+		nics[curnic].name = *names;
+		update_maxscnt();
+		printf( "mac=%02X:%02X:%02X:%02X:%02X:%02X maxscnt=%u\n", 
+			nics[curnic].mac[0], nics[curnic].mac[1], nics[curnic].mac[2], 
+			nics[curnic].mac[3], nics[curnic].mac[4], nics[curnic].mac[5], nics[curnic].maxscnt );
+	}
+	curnic = 0;
 }
 
 int
 main(int argc, char **argv)
 {
 	char *sz;
-	struct stat st;
 #ifdef KEEP_STATS
 	skipped_writes = 0;
 	skipped_packets = 0;
 #endif
-	int ch, omode = O_NOATIME, readonly = 0;
+	int ch, omode = O_NOATIME | O_RDWR;
 	page_size = getpagesize();
 #ifdef USE_AIO
 # ifdef O_DIRECT
@@ -268,7 +355,6 @@ main(int argc, char **argv)
 	setbuf(stdin, NULL);
 	progname = *argv;
 	tags_tracking = TAGS_ANY;
-	iox_init(); //do it right now so we can call iox_flush anytime
 	while ((ch = getopt(argc, argv, "f:b:dsrm:")) != -1) {
 		switch (ch) {
 		case 'b':
@@ -311,72 +397,43 @@ main(int argc, char **argv)
 # endif
 			break;
 		case 'r':
-			readonly = 1;
+			omode &= ~(int)O_RDWR;
+			omode |= O_RDONLY;
 			break;
 		case 'm':
 			setmask(optarg);
 			break;
 		case '?':
 		default:
-			usage();
+			print_usage_and_die();
 		}
 	}
 	argc -= optind;
 	argv += optind;
-	if (argc != 4 || bufcnt <= 0)
-		usage();
-	omode |= readonly ? O_RDONLY : O_RDWR;
-	bfd = open(argv[3], omode);
-	if (bfd == -1) {
-		perror("open");
-		grace_exit(1);
-	}
-	if (!readonly && flock(bfd, LOCK_EX|LOCK_NB)<0) {
-		perror("flock");
-		grace_exit(1);		
-	}
-	if (fstat(bfd, &st)==0) {
-		if (st.st_blksize > SECTOR_SIZE && 
-			st.st_blksize < (0x100*SECTOR_SIZE) && 
-			(st.st_blksize % SECTOR_SIZE)==0) {
-			bfd_blocks_per_sector = (uchar) (st.st_blksize / SECTOR_SIZE);
-		}
-	}
-
-	tagring_init();
+	if (argc < 4 || bufcnt <= 0)
+		print_usage_and_die();
 	shelf = atoi(argv[0]);
 	shelf_net = htons(shelf);
 	type_net = htons(0x88a2);
 	slot = atoi(argv[1]);
 	setserial(argv[3], shelf, slot);
-	size = getsize(bfd);
-	size /= SECTOR_SIZE;
-	ifname = argv[2];
-	sfd = dial(ifname, bufcnt);
-	getea(sfd, ifname, mac);
-	update_maxscnt();
-	printf("pid %ld: e%d.%d, %lld sectors%s%s%s, maxscnt: %u, block/sector: %u\n",
-		(long) getpid(), shelf, slot, size,
-		readonly ? " O_RDONLY" : " O_RDWR",  
-
-#ifdef O_DIRECT
-		(omode&O_DIRECT) ? " O_DIRECT" : "",
-#else
-		"",
+#ifdef MAX_NICS
+	if ((argc - 3)>MAX_NICS) {
+		printf("This build supports maximum %u NICs\n", MAX_NICS);
+		grace_exit(1);
+	}
 #endif
 
-#ifdef O_DSYNC 
-		(omode&O_DSYNC) ? " O_DSYNC" : "",
-#else
-		(omode&O_SYNC) ? " O_SYNC" : "",
+#if !defined(MAX_NICS) || (MAX_NICS>1)
+	niccnt = argc - 3;
 #endif
 
-		maxscnt, bfd_blocks_per_sector);
-
-	fflush(stdout);
-	bfd_init();
+	open_bfd_or_die(argv[argc - 1], omode);
+	open_nics_or_die(argv + 2);
+	iox_init(); 
+	tagring_init();
 	atainit();
-	malloc_trim(0);
+	fflush(stdout);
 	aoe();
 	return 0;
 }

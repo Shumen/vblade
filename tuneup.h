@@ -38,6 +38,18 @@
 //TODO: investigate why: CPU cache usage? Memory aligning?
 //# define SOCK_RXRING					//<--option
 
+#ifdef SOCK_RXRING
+//Reserve specified amount of bytes at the beginning of each ring frame
+//This increases amount of memory used by ring buffer but allows received
+//data be aligned to achieve best memory access performance
+//You may comment this option to disable reserving bytes or use some other
+//value if you system is rather strange for provided by default 3994.
+//You can autodetect suggested value by settings this option to -1 and 
+//grep'ing stdout for 'Suggested PACKET_RX_RING_RESERVE' line.
+# define PACKET_RX_RING_RESERVE 3994
+#endif
+
+
 //Use linux AIO to perform most IO in background
 //Requres BUFFERS_COUNT>1 and valid BUFFER_FULL_THRESHOLD defined
 //Note that AIO works best with direct mode (-d option)
@@ -57,6 +69,14 @@
 //paranoic enough. Note that initiator should be able to use this option
 //and should request it explicitely as extension.
 //#define SUPPORT_CRC					//<--option
+
+
+
+//Defines maximum coubt of NICs can single AoEde instance use.
+//You can comment this defines - in this case maximum number will be
+//limited only by operating system capabilities and available resourses.
+//However setting this to expected value produces more optimal code.
+#define MAX_NICS	1					//<--option
 
 /////////////////////////////////////////////////////////////////////////////////
 ////following options designed for debug/diagnose purposes and normally disabled

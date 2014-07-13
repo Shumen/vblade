@@ -2,21 +2,17 @@
 
 // aoe.c
 
-void	aoe(void);
 void	aoeinit(void);
 void	aoequery(void);
 void	aoeconfig(void);
-void	aoead(int);
 void	aoeflush(int, int);
 void	aoetick(void);
 void	aoerequest(int, int, vlong, int, uchar *, int);
-int	maskcheck(uchar *);
-int	rrok(uchar *);
+int		maskcheck(uchar *ea);
+int		rrok(uchar *);
 
 
 // doaoe.c
-void sfd_putpkt_or_die(uchar *data, int len);
-void preinit_reply_hdr(Aoehdr *request_hdr, Aoehdr *reply_hdr);
 void doaoe(Aoehdr *p, Aoehdr *op, int n);
 
 
@@ -36,14 +32,16 @@ void	free_bpf_program(void *);
 void aoecrc8x4_append(unsigned char *data, size_t len);
 unsigned char aoecrc8x4_verify(const unsigned char *data, size_t len);
 #endif
+
+
 // os specific
 
 int	dial(char *, int);
 int	getea(int, char *, uchar *);
-int	putpkt(int, uchar *, int);
-int	getpkt(int, uchar *, int);
+int	putpkt(uchar *, int);
+int	getpkt(uchar *, int);
 vlong	getsize(int);
-int	getmtu(int, char *);
+int	getmtu(int s, char *name);
 void grace_exit(int);
 
 static inline int 
@@ -59,20 +57,48 @@ packet_check(const void *pd, int npd) {
 	return maskcheck(((Aoehdr *) pd)->src);
 }
 
+static inline int sectors_per_packet_size(int sz) {
+	sz-= sizeof (Ata);
+#ifdef SUPPORT_CRC
+	if (enable_crc)
+		sz-= 4;
+#endif
+	sz/= SECTOR_SIZE;
+	return sz;
+}
+
+static inline void 
+sfd_putpkt_or_die(uchar *data, int len)
+{
+	if (putpkt(data, len) == -1) {
+		perror("sfd_putpkt_or_die: write to network");
+		grace_exit(1);
+	}
+}
+
+static inline void 
+preinit_reply_hdr(Aoehdr *request_hdr, Aoehdr *reply_hdr)
+{
+	memcpy(reply_hdr->dst, request_hdr->src, 6);
+	memcpy(reply_hdr->src, nics[curnic].mac, 6);
+	memcpy(reply_hdr->tag, request_hdr->tag, sizeof(reply_hdr->tag));
+	reply_hdr->maj = shelf_net;
+	reply_hdr->min = slot;
+	reply_hdr->type = request_hdr->type;
+	reply_hdr->flags = request_hdr->flags | Resp;
+	reply_hdr->error = request_hdr->error;
+	reply_hdr->cmd = request_hdr->cmd;
+}
 
 #ifdef SOCK_RXRING
 int rxring_init();
 int rxring_deinit();
 void rxring_roll(uchar *buf);
-int rxring_maxscnt();
-static inline void 
-update_maxscnt() {
-	maxscnt = rxring_maxscnt();
-}
+void update_maxscnt();
 #else
 static inline void 
 update_maxscnt() {
-	maxscnt = (getmtu(sfd, ifname) - sizeof (Ata)) / SECTOR_SIZE;
+	nics[curnic].maxscnt = sectors_per_packet_size(getmtu(nics[curnic].sfd, nics[curnic].name));
 }
 #endif
 
@@ -82,8 +108,8 @@ void rd_callback(Ata *ata_responce, int nret);
 void rd_callback_with_preinit_buffer(int nret);
 
 // iox.c
-ssize_t iox_read_packet_fd(int fd, void *buf, size_t count);
-int iox_poll(int fd, int timeout);
+ssize_t iox_read_sfd(void *buf, size_t count);
+int iox_poll(int timeout);
 int iox_putsec(uchar *place, vlong lba, int nsec);
 void iox_getsec(struct Ata *preinit_ata_responce, vlong lba, int nsec);
 void iox_flush();

@@ -116,14 +116,17 @@ static struct SectorBuffer
     unsigned long	used;
     unsigned long	nsec;
 	uchar			state;//SBS_*
-} sbs[BUFFERS_COUNT];
-
+} sbs[BUFFERS_COUNT] = 
 #ifdef USE_AIO
+					{ {{0}, 0} };
+
 static struct
 {
 	io_context_t	ctx;
 	uchar 			pending;
-} aio;
+} aio = { 0 };
+#else
+					{ {0} };
 #endif
 
 
@@ -174,7 +177,7 @@ static struct
 
 	vlong  aio;
 	vlong  after_party;
-} sbst;
+} sbst = {0};
 
 # define TOTAL_WRITES (sbst.wr_nice + sbst.wr_new + sbst.wr_preempt)	//wr_collide is currently redundant
 # define TOTAL_READS (sbst.rd_nice + sbst.rd_miss + sbst.rd_preempt)

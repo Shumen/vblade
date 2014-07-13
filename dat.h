@@ -37,6 +37,8 @@ typedef unsigned long ulong;
 #endif
 typedef long long vlong;
 
+typedef uchar MacAddress[6];
+
 typedef struct Aoehdr Aoehdr;
 typedef struct Ata Ata;
 typedef struct Conf Conf;
@@ -58,8 +60,8 @@ struct Ataregs
 
 struct Aoehdr
 {
-	uchar	dst[6];
-	uchar	src[6];
+	MacAddress	dst;
+	MacAddress	src;
 	ushort	type;
 	uchar	flags;
 	uchar	error;
@@ -103,7 +105,7 @@ struct Conf
 struct Mdir {
 	uchar res;
 	uchar cmd;
-	uchar mac[6];
+	MacAddress mac;
 };
 
 struct Aoemask {
@@ -233,9 +235,29 @@ extern int	nconfig;
 extern int	bufcnt;
 extern int	shelf, slot;
 extern ushort  shelf_net, type_net;
-extern uchar	mac[6];
 extern int	bfd;		// block file descriptor
-extern int	sfd;		// socket file descriptor
+
+#if !defined(MAX_NICS) || (MAX_NICS>1)
+extern int	niccnt;	// opened socket file descriptors count
+#else
+#define niccnt (1)
+#endif
+
+extern struct NIC
+{
+	char *name;
+	int sfd;
+	int	maxscnt;
+	MacAddress	mac;
+}
+#ifdef MAX_NICS
+	nics[MAX_NICS];
+#else
+	*nics;
+#endif
+
+extern int		curnic;
+
 extern vlong	size;		// size of blade
 extern uchar	bfd_blocks_per_sector;	//how many AoE sectors contained in FS block 
 extern char	*progname;
@@ -245,8 +267,7 @@ extern uchar	coalesced_read;
 #ifdef SUPPORT_CRC
 extern uchar	enable_crc;
 #endif
-extern int	maxscnt;
-extern char *	ifname;
+
 extern char *	freeeze_path;
 extern vlong	freeeze_size_limit;
 

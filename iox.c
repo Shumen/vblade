@@ -79,19 +79,58 @@ process_sigusr_request()
 }
 
 static time_t tm_last_long_flush = 0;
+#ifdef MAX_NICS
+static struct pollfd pollset[MAX_NICS];
+#else
+static struct pollfd *pollset = NULL;
+#endif
+static int pollset_remain = 0;
+
+static signed char 
+tricky_ppoll(struct timespec *ts)
+{
+	int i;
+	if (pollset_remain!=0) {
+		--pollset_remain;
+		for (i = 0; i<niccnt; ++i) {
+			if (pollset[i].revents!=0) {
+				pollset[i].revents = 0;
+				curnic = i;
+				return 1;
+			}
+		}
+	}
+
+	for (i = 0; i<niccnt; ++i) {
+		pollset[i].fd = nics[i].sfd;
+		pollset[i].events = POLLIN;
+		pollset[i].revents = 0;
+	}
+
+	i = ppoll(&pollset[0], niccnt, ts, &sst_notusr);
+	if (i>0) {
+		pollset_remain = i - 1;
+		for (i = 0; i<niccnt; ++i) {
+			if (pollset[i].revents!=0) {
+				pollset[i].revents = 0;
+				curnic = i;
+				return 1;
+			}
+		}
+	}
+
+	pollset_remain = 0;
+
+	return i;
+}
 
 int 
-iox_poll(int fd, int timeout) 
+iox_poll(int timeout) 
 {
-	struct pollfd pollset;
-	struct timespec ts;
 	time_t tms = 0, tm;	
+	struct timespec ts;
 	int r;
 	for (;;) {
-		pollset.fd = fd;
-		pollset.events = POLLIN;
-		pollset.revents = 0;
-
 		process_sigusr_request();
 		if (AOE_UNLIKELY(freeze_stopping)) {//do flush instead of idle waiting
 			time(&tm);
@@ -105,8 +144,8 @@ iox_poll(int fd, int timeout)
 			if (AOE_LIKELY(freeze_stopping)) {
 				ts.tv_sec = 0;
 				ts.tv_nsec = 0;
-				r = ppoll(&pollset, 1, &ts, &sst_notusr);
-				if (r==-1) {
+				r = tricky_ppoll(&ts);
+				if (r<0) {
 					if (errno!=EINTR)
 						return -1;
 				} else if (r>0) {
@@ -121,9 +160,9 @@ iox_poll(int fd, int timeout)
 			if (timeout!=-1) {
 				ts.tv_sec = timeout;
 				ts.tv_nsec = 0;
-				r = ppoll(&pollset, 1, &ts, &sst_notusr);
+				r = tricky_ppoll(&ts);
 			} else
-				r = ppoll(&pollset, 1, NULL, &sst_notusr);
+				r = tricky_ppoll(NULL);
 
 			if (r!=-1 || errno!=EINTR) break;
 		}
@@ -140,18 +179,18 @@ iox_sleep(int t)
 }
 
 ssize_t 
-iox_read_packet_fd(int fd, void *buf, size_t count)
+iox_read_sfd(void *buf, size_t count)
 {
 	ssize_t r;
 	sigprocmask(SIG_UNBLOCK, &sst_usr, NULL);
 	for (;;)
 	{
-		if (AOE_UNLIKELY(freeze_stopping)) {
-			if (iox_poll(fd, 10)<=0){ //it will take care about unfreezing
-				continue;
-			}
+		if (niccnt>1 || AOE_UNLIKELY(freeze_stopping)) {
+			r = iox_poll(-1); //it will take care about unfreezing
+			if (r<=0)
+				break;
 		}
-		r = read(fd, buf, count);
+		r = read(nics[curnic].sfd, buf, count);
 		if (AOE_LIKELY(r!=-1 || errno!=EINTR)) break;
 		if (AOE_UNLIKELY(sigusr_request)) {
 			sigprocmask(SIG_BLOCK, &sst_usr, NULL);
@@ -260,6 +299,17 @@ void
 iox_init()
 {
 	struct sigaction sa;
+
+#ifndef MAX_NICS
+	if (pollset) free(pollset);
+	pollset = (struct pollfd *)malloc(niccnt * sizeof(struct pollfd));
+	if (!pollset) {
+		perror("malloc");
+		exit(-1);
+	}
+#endif
+
+	memset(&pollset[0], 0, sizeof(pollset));
 	memset(&sa, 0, sizeof(sa));
     sigfillset(&sa.sa_mask);
 
