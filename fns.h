@@ -127,15 +127,12 @@ void freeze_flush_and_stop(unsigned int time_limit);
 ///should be called prior to any other bfd_*() here.
 void bfd_init();
 
-///Call this before entering blocking network wait.
-///Returns sujjested wait timeout in seconds:
-////0 if some IO performed during this call so caller can check for new packets w/o wait.
-////Some suggested blocking wait timeout after what elapsion call bfd_idle_elapsed() .
-////Or -1 in other cases.
-int bfd_idle_begin(); 
+///Call this is assume long delay in future
+///Returns non-zero if some IO occured during this call
+uchar bfd_idle_begin(); 
 
-///Call this to allow bfd to release some resources if during t msec there was no relevant activity.
-void bfd_idle_elapsed(int t); 
+///Call this to allow bfd to flush and/or release some resources on idle
+void bfd_idle_elapsed(uchar long_idle); 
 
 ///Call to flush any buffered data on disk, e.g. before process termination.
 void bfd_flush();

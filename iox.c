@@ -27,6 +27,7 @@
 #include <malloc.h> 
 #include <unistd.h>
 #include <signal.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <poll.h>
@@ -49,6 +50,7 @@ static volatile int die_signal = 0;
 static volatile uchar sigusr_request = 0;
 static volatile uchar count_of_sigusr1 = 0;
 static sigset_t sst_usr, sst_notusr;
+static unsigned int io_counter = 0;
 
 static inline void 
 process_sigusr_request()
@@ -106,7 +108,6 @@ tricky_ppoll(struct timespec *ts)
 		pollset[i].events = POLLIN;
 		pollset[i].revents = 0;
 	}
-
 	i = ppoll(&pollset[0], niccnt, ts, &sst_notusr);
 	if (i>0) {
 		pollset_remain = i - 1;
@@ -225,6 +226,7 @@ int
 iox_putsec(uchar *place, vlong lba, int nsec)
 {	
 	int r;
+	++io_counter;
 	for (;;) {
 		process_sigusr_request();
 		if (!freeze_active)
@@ -246,6 +248,7 @@ iox_putsec(uchar *place, vlong lba, int nsec)
 void
 iox_getsec(struct Ata *preinit_ata_responce, vlong lba, int nsec)
 {
+	++io_counter;
 	process_sigusr_request();
 	if (freeze_active) {
 		iox_check_for_inrequest_freeze_flush();
@@ -294,11 +297,40 @@ handle_sigusr2(int signal)
 		printf("Got sigusr2 while die requested\n");
 }
 
+static void 
+handle_sigalrm(int signal)
+{
+	static unsigned int prev_io_counter = 0;
+	static uchar idle_intervals = 0;
+
+	if (io_counter==prev_io_counter) {
+		if (idle_intervals<0xff)
+			++idle_intervals;
+
+		switch (idle_intervals) {
+		case 1:
+			bfd_idle_elapsed(0);
+#ifdef KEEP_STATS
+			if (tags_tracking!=TAGS_ANY)
+				printf("skipped_writes=%llu skipped_packets=%llu\n", skipped_writes, skipped_packets);
+#endif
+			break;
+		case 5:
+			bfd_idle_elapsed(1);
+			break;
+		}
+	}
+	else {
+		idle_intervals = 0;
+		prev_io_counter = io_counter;
+	}
+}
 
 void 
 iox_init()
 {
 	struct sigaction sa;
+	struct itimerval itv;
 
 #ifndef MAX_NICS
 	if (pollset) free(pollset);
@@ -317,9 +349,12 @@ iox_init()
 	sigemptyset(&sst_usr);
 	sigaddset(&sst_usr, SIGUSR1);
 	sigaddset(&sst_usr, SIGUSR2);
+	sigaddset(&sst_usr, SIGALRM );
+
 	sigprocmask(SIG_BLOCK, &sst_usr, &sst_notusr);
 	sigdelset(&sst_notusr, SIGUSR1);
 	sigdelset(&sst_notusr, SIGUSR2);
+	sigdelset(&sst_notusr, SIGALRM );
 
 	sa.sa_handler = &handle_deadly_signal;
 	sigaction(SIGINT, &sa, NULL);
@@ -332,5 +367,14 @@ iox_init()
 
 	sa.sa_handler = &handle_sigusr2;
 	sigaction(SIGUSR2, &sa, NULL);
+
+	sa.sa_handler = &handle_sigalrm;
+	sigaction(SIGALRM , &sa, NULL);
+
+
+	memset(&itv, 0, sizeof(itv));
+	itv.it_value.tv_sec = IDLE_BASE_INTERVAL;
+	itv.it_interval.tv_sec = IDLE_BASE_INTERVAL;
+	setitimer(ITIMER_REAL, &itv, NULL);
 }
 

@@ -243,31 +243,35 @@ static struct PacketsRing
 static int
 poll_rx_rings() 
 {
-	int r, idle_hint;
+	int i, idle_hint;
+/*#if !defined(MAX_NICS) || (MAX_NICS>1)
+	for (i = 0; i<niccnt; ++i) {
+		if (i!=curnic && (rx_rings[i].current->tp_status & TP_STATUS_USER)!=0) {
+			rx_rings[curnic] = rx_selected;
+			rx_selected = rx_rings[i];
+			curnic = i;
+			return 0;
+		}
+	}
+#endif*/
+
 	for (;;) {
-		idle_hint = bfd_idle_begin();
-		if (idle_hint!=0) {
+		if (bfd_idle_begin()==0) {
 #if (MAX_NICS>1)
 			int prevnic = curnic;
 #endif
-			r = iox_poll(idle_hint);
-			if (r>0) {
+			i = iox_poll(-1);
+			if (i>0) {
 #if (MAX_NICS>1)
 				if (curnic!=prevnic) {
 					rx_rings[prevnic] = rx_selected;
 					rx_selected = rx_rings[curnic];
 				}
 #endif
-			} else if (r<0) {
+			} else if (i<0) {
 				perror("iox_poll()");
 				return -1;
-			} else {
-				bfd_idle_elapsed(idle_hint);
-#ifdef KEEP_STATS
-				if (tags_tracking!=TAGS_ANY)
-					printf("skipped_writes=%llu skipped_packets=%llu\n", skipped_writes, skipped_packets);
-#endif
-			}
+			} 
 		}
 		if ((rx_selected.current->tp_status & TP_STATUS_USER)!=0)
 			return 0;

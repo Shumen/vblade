@@ -78,6 +78,11 @@
 //However setting this to expected value produces more optimal code.
 #define MAX_NICS	1					//<--option
 
+
+//Base seconds value that govers flush and buffers release timeouts
+#define IDLE_BASE_INTERVAL 	10				//<--option
+
+
 /////////////////////////////////////////////////////////////////////////////////
 ////following options designed for debug/diagnose purposes and normally disabled
 

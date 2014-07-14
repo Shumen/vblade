@@ -366,15 +366,15 @@ bfd_flush()
 	}
 }
 
-int 
+uchar
 bfd_idle_begin() 
 {
-	uchar i;
+	uchar i, out = 0;
 #ifdef USE_AIO
 	check_aio_complete();
 #endif
 	if (wanna_after_party) {
-		uchar flush_oldest = 1, did_io = 0;
+		uchar flush_oldest = 1;
 		struct SectorBuffer *oldest_dirty_sb = 0;
 		wanna_after_party = 0;
 		for (i = 0; i<BUFFERS_COUNT; ++i) {
@@ -384,8 +384,8 @@ bfd_idle_begin()
 				if (sbc->nsec>=BUFFER_FULL_THRESHOLD) {
 					if (flush_sb_sync(sbc)==0) {
 						INCREMENT_STAT(after_party);
+						out = 1;
 						flush_oldest = 0;
-						did_io = 1;
 					}
 				}
 				else
@@ -399,21 +399,15 @@ bfd_idle_begin()
 				flush_oldest = 0;
 		}
 		if (flush_oldest && oldest_dirty_sb && flush_sb_sync(oldest_dirty_sb)==0) {
+			out = 1;
 			INCREMENT_STAT(after_party);
-			did_io = 1;
 		}
-		return did_io ? 0 : (oldest_dirty_sb ? 1 : (allocated_buffers ? 10 : -1) );
 	}
-
-	for (i = 0; i< BUFFERS_COUNT; ++i) {
-		if (sbs[i].state!=SBS_CLEAN)
-			return 1;//no need to loop more
-	}
-	return allocated_buffers ? 10: -1;
+	return out;
 }
 
 void 
-bfd_idle_elapsed(int t)
+bfd_idle_elapsed(uchar long_idle)
 {
 	unsigned char frd = 0, i;
 #ifdef USE_AIO
@@ -427,7 +421,7 @@ bfd_idle_elapsed(int t)
 					continue;
 			}
 
-			if (t>=10) {
+			if (long_idle) {
 				--allocated_buffers;
 				++frd;
 				free(sbc->data - page_size);
@@ -438,12 +432,12 @@ bfd_idle_elapsed(int t)
 		}
 	}
 
-
+//	printf("idle elapsed, t=%u\n", t);
 	if (frd) {
 		STATS_ON_STOP_BUFFERING(frd);
 		malloc_trim(0);
 	}
-	else {
+	else {		
 		STATS_ON_IDLE;
 	}
 }
