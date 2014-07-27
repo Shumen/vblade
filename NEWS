@@ -1,4 +1,8 @@
 -*- change-log -*-
+2014-07-27 Killer{R} <support@killprog.com>
+	Multiple interfaces support
+	Idle timeout now works (periodic buffers flush etc) when compiled without mapped ring buffer support
+
 2014-07-07 Killer{R} <support@killprog.com>
 	Avoid memcpy when possible during buffered read (send directly from buffer memory)
 	SOCK_RXRING option is off by default (it appeared that stupid but aligned buffer often faster)

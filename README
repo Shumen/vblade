@@ -201,7 +201,13 @@ serving initiator requests. However this process noticeable decreases performanc
 until finishes. 
 
 
-Contrib Patches
----------------
+Multiple interfaces support
+---------------------------
 
-see contrib/README
+If you want to use AoEde with more than singke network interface you should build it 
+with MAX_NICS (in tuneup.h) undefined or set to planned maximum interfaces count.
+Then you should launch it specifying  all interfaces is command line, for example:
+aoede 1 4 eth0 eth1 /data/AOE.fs
+Note that launching several instances of aoede per single file (like it was possible 
+with vblade) is not supported due to AoEde has own userspace buffering.
+
