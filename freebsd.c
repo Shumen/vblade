@@ -26,6 +26,7 @@
 #include <net/if.h>
 #include <sys/stat.h>
 #include <sys/disk.h>
+#include <sys/disklabel.h>
 #include <sys/select.h>
 #include <sys/sysctl.h>
 
@@ -209,7 +210,6 @@ getea(int s, char *eth, uchar *ea)
 	return(0);
 }
 
-
 int
 getsec(int fd, uchar *place, vlong lba, int nsec)
 {
@@ -226,15 +226,15 @@ static int pktn = 0;
 static uchar *pktbp = NULL;
 
 int
-getpkt(int fd, uchar *buf, int sz)
+getpkt(uchar *buf, int sz)
 {
 	register struct bpf_hdr *bh;
 	register int pktlen, retlen;
-	
+
 	if (pktn <= 0) { 
-		if ((pktn = read(fd, pktbuf, pktbufsz)) < 0) {
+		if ((pktn = iox_read_sfd(pktbuf, pktbufsz)) < 0) {
 			perror("read");
-			exit(1);
+			grace_exit(1);
 		}
 		pktbp = pktbuf;
 	}
@@ -253,9 +253,9 @@ getpkt(int fd, uchar *buf, int sz)
 }
 
 int
-putpkt(int fd, uchar *buf, int sz)
+putpkt(uchar *buf, int sz)
 {
-	return write(fd, buf, sz);
+	return write(nics[curnic].sfd, buf, sz);
 }
 
 int
@@ -283,10 +283,14 @@ getmtu(int fd, char *name)
 vlong
 getsize(int fd)
 {
+<<<<<<< HEAD
 	off_t media_size;
 	vlong size;
 	struct stat s;
 	int n;
+	//struct disklabel lab;
+	//if ((n = ioctl(fd, DIOCGDINFO, lab)) != -1) {  
+	//	size = lab.d_secsize * lab.d_secperunit;
 
 	// Try getting disklabel from block dev
 	if ((n = ioctl(fd, DIOCGMEDIASIZE, &media_size)) != -1) {
@@ -295,7 +299,7 @@ getsize(int fd)
 		// must not be a block special dev
 		if (fstat(fd, &s) == -1) {
 			perror("getsize");
-			exit(1);
+			grace_exit(1);
 		}
 		size = s.st_size;
 	}
@@ -303,3 +307,7 @@ getsize(int fd)
 	printf("%lld bytes\n", size);
 	return size;
 }
+
+#ifdef SOCK_RXRING
+# error "SOCK_RXRING not implemented for FreeBSD"
+#endif

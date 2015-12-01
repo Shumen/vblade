@@ -12,12 +12,40 @@
 2014-08-10 Ed Cashin <ed.cashin@acm.org>
 	vblade-22
 
-2014-06-08 Ed Cashin <ed.cashin@acm.org>
+2014-07-28 Ed Cashin <ed.cashin@acm.org>
 	update version for v22 release candidate 1
 	buffer boundary cleanups
 	FreeBSD BPF and MTU fixes from Catalin Salgau
 	offset and size options by Christoph Biedl
 	vblade-22rc1
+
+2014-07-27 Killer{R} <support@killprog.com>
+	Multiple interfaces support
+	Idle timeout now works (periodic buffers flush etc) when compiled without mapped ring buffer support
+
+2014-07-07 Killer{R} <support@killprog.com>
+	Avoid memcpy when possible during buffered read (send directly from buffer memory)
+	SOCK_RXRING option is off by default (it appeared that stupid but aligned buffer often faster)
+	All IO buffers now aligned to page boundary instead of 512 bytes. It also sometimes faster
+	Fixed long delay on exit when compiled without SOCK_RXRING
+	More flexible selecting blocks/frames count for mapped buffer (if SOCK_RXRING enabled)
+	Added additional CRC8x4 data verification support
+
+2014-06-22 Killer{R} <support@killprog.com>
+	added Freeze feature
+	AIO optimized for FS/device block sizes >512 bytes
+
+2014-06-09 Killer{R} <support@killprog.com>
+	added Extensions command to negotiate features 
+	removed -t and -T options (negotiated now)
+	read requests coalescing (negotiated extension)
+	doaoe()&co moved to doaoe.c
+
+2014-06-04 Killer{R} <support@killprog.com>
+	added some features and forked as AoEde project:
+	using PACKET_RX_RING to receive packets under Linux 
+	IO buffering with using of Linux AIO
+	tags sequencing to avoid misordered writes 
 
 2013-03-18 Ed Cashin <ecashin@coraid.com>
 	add big-endian support from Daniel Mealha Cabrita <dancab@gmx.net>

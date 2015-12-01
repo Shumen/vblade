@@ -1,4 +1,4 @@
-/* dat.h: include file for vblade AoE target */
+/* dat.h: include file for aoede AoE target */
 
 #define	nil	((void *)0)
 /*
@@ -6,10 +6,10 @@
  */
 
 enum {
-	VBLADE_VERSION		= 22,
+	AOEDE_VERSION		= 22,
 
 	// Firmware version
-	FWV			= 0x4000 + VBLADE_VERSION,
+	FWV			= 0x4000 + AOEDE_VERSION,
 };
 
 #undef major
@@ -20,6 +20,14 @@ enum {
 #define	minor(x)		((x) & 0xffffff)
 #define	makedev(x, y)	((x) << 24 | (y))
 
+#define Z_ALIGN(x, z)        (((x)+(z)-1)&~((z)-1))
+#define PAGE_ALIGN(x)        Z_ALIGN(x, page_size)
+
+
+//Set in stone, do not change
+#define SECTOR_SIZE		512 	
+
+
 typedef unsigned char uchar;
 //typedef unsigned short ushort;
 #ifdef __FreeBSD__
@@ -29,6 +37,8 @@ typedef unsigned long ulong;
 #endif
 typedef long long vlong;
 
+typedef uchar MacAddress[6];
+
 typedef struct Aoehdr Aoehdr;
 typedef struct Ata Ata;
 typedef struct Conf Conf;
@@ -36,6 +46,8 @@ typedef struct Ataregs Ataregs;
 typedef struct Mdir Mdir;
 typedef struct Aoemask Aoemask;
 typedef struct Aoesrr Aoesrr;
+typedef struct Aoeextensions Aoeextensions;
+typedef struct AtaCoalescedRead AtaCoalescedRead;
 
 struct Ataregs
 {
@@ -49,6 +61,8 @@ struct Ataregs
 
 struct Aoehdr
 {
+	MacAddress	dst;
+	MacAddress	src;
 	uchar	dst[6];
 	uchar	src[6];
 	ushort	type;
@@ -58,6 +72,14 @@ struct Aoehdr
 	uchar	min;
 	uchar	cmd;
 	uchar	tag[4];
+};
+
+struct AtaCoalescedRead
+{
+	uchar	tag[4];
+	uchar	lba[6];
+	uchar	resvd[5];
+	uchar	sectors;
 };
 
 struct Ata
@@ -87,6 +109,7 @@ struct Mdir {
 	uchar res;
 	uchar cmd;
 	uchar mac[6];
+	MacAddress mac;
 };
 
 struct Aoemask {
@@ -105,6 +128,13 @@ struct Aoesrr {
 //	uchar mac[6][nmacs];
 };
 
+struct Aoeextensions {
+	Aoehdr h;
+	ushort len;
+    char extensions[];
+};
+
+
 enum {
 	AoEver = 1,
 
@@ -112,6 +142,7 @@ enum {
 	Config,
 	Mask,
 	Resrel,
+	Extensions = Resrel + 0x20,
 
 	Resp = (1<<3),		// flags
 	Error = (1<<2),
@@ -136,9 +167,7 @@ enum {
 
 	Nretries = 3,
 	Nconfig = 1024,
-
-	Bufcount = 16,
-
+	Bufcount = 64,
 	/* mask commands */
 	Mread= 0,	
 	Medit,
@@ -159,17 +188,114 @@ enum {
 	Ncfghdr= Naoehdr + 8,
 	Nmaskhdr= Naoehdr + 4,
 	Nsrrhdr= Naoehdr + 2,
+	Nata= 60,
 
 	Nserial= 20,
 };
 
-int	shelf, slot;
+//int	shelf, slot;
 ulong	aoetag;
 uchar	mac[6];
-int	bfd;		// block file descriptor
+//int	bfd;		// block file descriptor
 int	sfd;		// socket file descriptor
-vlong	size;		// size of vblade
+//vlong	size;		// size of vblade
 vlong	offset;
-char	*progname;
-char	serial[Nserial+1];
+//char	*progname;
+//char	serial[Nserial+1];
 
+enum {
+	// err bits
+	UNC =	1<<6,
+	MC =	1<<5,
+	IDNF =	1<<4,
+	MCR =	1<<3,
+	ABRT = 	1<<2,
+	NM =	1<<1,
+
+	// status bits
+	BSY =	1<<7,
+	DRDY =	1<<6,
+	DF =	1<<5,
+	DRQ =	1<<3,
+	ERR =	1<<0,
+};
+
+
+enum {
+	Nmasks= 32,
+	Nsrr= 256,
+	Alen= 6,
+};
+
+enum {
+	TAGS_ANY = 0,
+    TAGS_INC_LE = 1,
+    TAGS_INC_BE = 2,
+    TAGS_RANDOM = 3
+};
+
+enum { MAXLBA28SIZE = 0x0fffffff };	
+
+extern unsigned int page_size;
+extern uchar freeze_stopping;
+extern uchar freeze_active;
+
+extern uchar	masks[Nmasks*Alen];
+extern int	nmasks;
+extern uchar	srr[Nsrr*Alen];
+extern int	nsrr;
+extern char	config[Nconfig];
+extern int	nconfig;
+extern int	bufcnt;
+extern int	shelf, slot;
+extern ushort  shelf_net, type_net;
+extern int	bfd;		// block file descriptor
+
+#if !defined(MAX_NICS) || (MAX_NICS>1)
+extern int	niccnt;	// opened socket file descriptors count
+#else
+#define niccnt (1)
+#endif
+
+extern struct NIC
+{
+	char *name;
+	int sfd;
+	int	maxscnt;
+	MacAddress	mac;
+}
+#ifdef MAX_NICS
+	nics[MAX_NICS];
+#else
+	*nics;
+#endif
+
+extern int		curnic;
+
+extern vlong	size;		// size of blade
+extern uchar	bfd_blocks_per_sector;	//how many AoE sectors contained in FS block 
+extern char	*progname;
+extern char	serial[Nserial+1];
+extern uchar	tags_tracking;// TAGS_*
+extern uchar	coalesced_read;
+#ifdef SUPPORT_CRC
+extern uchar	enable_crc;
+#endif
+
+extern char *	freeeze_path;
+extern vlong	freeeze_size_limit;
+
+#ifdef KEEP_STATS
+extern vlong skipped_writes;
+extern vlong skipped_packets;
+#endif
+
+#if defined(__CLANG__) || defined(__GNUC__) //todo: check support by compiler's version
+# define AOE_LIKELY(x)      __builtin_expect(!!(x), 1)
+# define AOE_UNLIKELY(x)    __builtin_expect(!!(x), 0)
+
+#else
+# define AOE_LIKELY(x)      (x)
+# define AOE_UNLIKELY(x)    (x)
+
+#endif

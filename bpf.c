@@ -1,3 +1,23 @@
+/*
+  Copyright 2005-2014, CORAID.
+  For contact information, see http://coraid.com/
+  Copyright 2014, Killer{R}
+  For contact information, see http://killprog.com/
+
+  This file is part of AoEde.
+
+  AoEde is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 2 of the License.
+
+  AoEde is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with AoEde.  If not, see <http://www.gnu.org/licenses/>.
+*/
 // bpf.c: bpf packet filter for linux/freebsd
 
 #include "config.h"
@@ -86,23 +106,34 @@ create_bpf_program(int shelf, int slot)
 		BPF_STMT(BPF_LD+BPF_H+BPF_ABS, 12),
 		/* Does it match AoE Type (0x88a2)? No, goto INVALID */
 		BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 0x88a2, 0, 10),
+		//BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 0x88a2, 0, 12),
 		/* Load the flags into register */
 		BPF_STMT(BPF_LD+BPF_B+BPF_ABS, 14),
 		/* Check to see if the Resp flag is set */
 		BPF_STMT(BPF_ALU+BPF_AND+BPF_K, Resp),
 		/* Yes, goto INVALID */
+<<<<<<< HEAD
 		BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 0, 0, 7),
+		//BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 0, 0, 9),
 		/* CHECKSHELF: Load the shelf number into register */
 		BPF_STMT(BPF_LD+BPF_H+BPF_ABS, 16),
 		/* Does it match shelf number? Yes, goto CHECKSLOT */
 		BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, shelf, 1, 0),
+		/* Does it match shelf number? No, goto CHECKBROADCAST */
+		//BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, shelf, 0, 2),
 		/* Does it match broadcast? No, goto INVALID */
 		BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 0xffff, 0, 4),
 		/* CHECKSLOT: Load the slot number into register */
 		BPF_STMT(BPF_LD+BPF_B+BPF_ABS, 18),
 		/* Does it match shelf number? Yes, goto VALID */
 		BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, slot, 1, 0),
+		//BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, slot, 4, 0),
 		/* Does it match broadcast? No, goto INVALID */
+		/* CHECKBROADCAST: is (shelf, slot) == (0xffff, 0xff)? */
+		/* Load the shelf number into register */
+		//BPF_STMT(BPF_LD+BPF_H+BPF_ABS, 16),
+		/* Is it 0xffff? No, goto INVALID */
+		//BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 0xffff, 0, 3),
 		BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 0xff, 0, 1),
 		/* VALID: return -1 (allow the packet to be read) */
 		BPF_STMT(BPF_RET+BPF_K, -1),
@@ -112,7 +143,7 @@ create_bpf_program(int shelf, int slot)
 	if ((bpf_program = malloc(sizeof(struct bpf_program))) == NULL
 	    || (bpf_program->bf_insns = malloc(sizeof(insns))) == NULL) {
 		perror("malloc");
-		exit(1);
+		grace_exit(1);
 	}
 	bpf_program->bf_len = sizeof(insns)/sizeof(struct bpf_insn);
 	memcpy(bpf_program->bf_insns, insns, sizeof(insns));

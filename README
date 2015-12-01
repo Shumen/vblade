@@ -2,25 +2,20 @@
 INTRODUCTION
 ------------
 
-The vblade is a minimal ATA over Ethernet (AoE) storage target.  Its
-focus is simplicity, not performance or richness of features.  It
-exports a seekable file available over an ethernet local area network
-(LAN) via the AoE data storage protocol.
-
-The name, "vblade," is historical: It is a virtual EtherDrive (R)
-blade.  The first AoE target hardware sold by Coraid was in a blade
-form factor, ten to a 4-rack-unit chassis.
+The AoEde is the virtual EtherDrive (R) blade, a program that makes a
+seekable file available over an ethernet local area network (LAN) via
+the ATA over Ethernet (AoE) protocol.
 
 The seekable file is typically a block device like /dev/md0 but even
 regular files will work.  Sparse files can be especially convenient.
-When vblade exports the block storage over AoE it becomes a storage
+When AoEde exports the block storage over AoE it becomes a storage
 target.  Another host on the same LAN can access the storage if it has
 a compatible aoe kernel driver.
 
 BUILDING
 --------
 
-The following command should build the vblade program on a Linux-based
+The following command should build the AoEde program on a Linux-based
 system:
 
   make
@@ -29,38 +24,40 @@ For FreeBSD systems, include an extra parameter like so:
 
   make PLATFORM=freebsd
 
+For the list of configurable options and their description see config.h
+
 EXAMPLES
 --------
 
-There is a "vbladed" script that daemonizes the program and sends its
+There is a "AoEded" script that daemonizes the program and sends its
 output to the logger program.  Make sure you have logger installed if
-you would like to run vblade as a daemon with the vbladed script.
+you would like to run AoEde as a daemon with the AoEded script.
 
-  ecashin@kokone vblade$ echo 'I have logger' | logger
-  ecashin@kokone vblade$ tail -3 /var/log/messages
+  ecashin@kokone AoEde$ echo 'I have logger' | logger
+  ecashin@kokone AoEde$ tail -3 /var/log/messages
   Feb  8 14:52:49 kokone -- MARK --
   Feb  8 15:12:49 kokone -- MARK --
   Feb  8 15:19:56 kokone logger: I have logger
 
 Here is a short example showing how to export a block device with a
-vblade.  (This is a loop device backed by a sparse file, but you could
+AoEde.  (This is a loop device backed by a sparse file, but you could
 use any seekable file instead of /dev/loop7.)
 
-  ecashin@kokone vblade$ make
+  ecashin@kokone AoEde$ make
   cc -Wall   -c -o aoe.o aoe.c
   cc -Wall   -c -o linux.o linux.c
   cc -Wall   -c -o ata.o ata.c
-  cc -o vblade aoe.o linux.o ata.o
-  ecashin@kokone vblade$ su
+  cc -o AoEde aoe.o linux.o ata.o
+  ecashin@kokone AoEde$ su
   Password: 
-  root@kokone vblade# modprobe loop
-  root@kokone vblade# dd if=/dev/zero bs=1k count=1 seek=`expr 1024 \* 4096` of=bd
+  root@kokone AoEde# modprobe loop
+  root@kokone AoEde# dd if=/dev/zero bs=1k count=1 seek=`expr 1024 \* 4096` of=bd
   -file
   1+0 records in
   1+0 records out
   1024 bytes transferred in 0.009901 seconds (103423 bytes/sec)
-  root@kokone vblade# losetup /dev/loop7 bd-file  
-  root@kokone vblade# ./vblade 9 0 eth0 /dev/loop7 
+  root@kokone AoEde# losetup /dev/loop7 bd-file  
+  root@kokone AoEde# ./AoEde 9 0 eth0 /dev/loop7 
   ioctl returned 0
   4294968320 bytes
   pid 16967: e9.0, 8388610 sectors
@@ -94,11 +91,11 @@ Remember: be as careful with these devices as you would with /dev/hda!
 Jumbo Frame Compatibility
 -------------------------
 
-Vblade can use jumbo frames provided your initiator is jumbo frame
+AoEde can use jumbo frames provided your initiator is jumbo frame
 capable.  There is one small configuration gotcha to consider 
-to avoid having the vblade kernel frequently drop frames.
+to avoid having the AoEde kernel frequently drop frames.
 
-Vblade uses a raw socket to perform AoE.  The linux kernel will
+AoEde uses a raw socket to perform AoE.  The linux kernel will
 only buffer a certain amount of data for a raw socket.  For 2.6
 kernels, this value is managed through /proc:
 
@@ -118,12 +115,12 @@ For each received frame, the kernel must be able to buffer
 16KB, even if the aoe frame is only 60 bytes in length.
 
 The linux aoe initiator will use 16 outstanding frames when
-used with vblade.  A good default for ensuring frames are
+used with AoEde.  A good default for ensuring frames are
 not dropped is to allocate 16KB for 17 frames:
 
 for f in /proc/sys/net/core/rmem_*; do echo $((17 * 16 * 1024)) >$f; done
 
-Be sure to start vblade after changing the buffering defaults
+Be sure to start AoEde after changing the buffering defaults
 as the buffer value is set when the socket is opened.
 
 AoE Initiator Compatibility
@@ -131,16 +128,86 @@ AoE Initiator Compatibility
 
 The Linux aoe driver for the 2.6 kernel is compatible if you use
 aoe-2.6-7 or newer.  You can use older aoe drivers but you will only
-be able to see one vblade per MAC address.
+be able to see one AoEde per MAC address.
+Extended features can be used only with target that supports them.
+Currently only AoEDisk does this. You can find it here: 
+https://sourceforge.net/projects/aoedisk/
 
-Contrib Patches
----------------
 
-see contrib/README
+Experimental Tag tracking functionality
+---------------------------
 
-Kvblade
--------
+Current AoE specification doesn't declare how AoE packet's tag field can
+be used by initiator. But at least some of them uses it as monotinically 
+incrementing unsigned 32-bit/liddle-endian counter for every new AoE packet. 
+This makes possible to reduce duplicated replies transmitted over network 
+(RX tags tracking) and to reduce risk of data corruption due to duplicated 
+by hardware packet came in wrong order (WRITE tags tracking). 
+Both this functionalities are disabled by default and can be enabled by 
+specifying command line argument. But be extremely carefull with WRITE tags 
+tracking, cause using it with initiator that doesn't meet above behaviour 
+can corrupt data! RX tags tracking option is more safe - while used with 
+correct initiator it will improve performance, using it with incompatible 
+initiator can just cause performance degradation, but not data corruption.
+TBD: Add special command in Aoemask request or flag into Aoehdr so initiator 
+will explicitely manifest itself as following described tag field behaviour.
 
-  While vblade runs as a userland process (like "ls" or "vi"), there
-  is another program that runs inside the kernel.  It is called
-  kvblade.  It is alpha software.
+
+CRC data integrity verification 
+---------------------------
+
+Normally ethernet hardware uses CRC32 to ensure transferred data integrity 
+(google 'Frame Check Sequence' for details). However there're cases when it
+would be nice to have some additional integrity verification: to check that
+hardware works flawless, or if user is very worried about data integrity and
+ready to pay some CPU cycles and/or network throughput. This project is able 
+to check CRC of incoming write requests and apply CRC to read responces before
+send them. 4 CRC8 checksums used for that. I selected such algorithm since its 
+faster than CRC16/32 and still good enough to _diagnose_ errors. However if 
+your hardware somewhy doesn't handle own FCS/CRC32 properly - Aoede's CRC is 
+not strong enough to guarantee data integrity if used alone.
+Note that this feature implemented as extension that should be supported by 
+initiator and also must be explicitly activated by it in order to work.
+When it activated: any write requests with mismatched CRC will be printed to 
+stderr and every read responce will be supplemented with 4 bytes of CRC.
+
+
+Exported image freeze
+---------------------------
+
+AoEde able to freeze disk image for a while with shadowing all writes. This 
+means that its possible to stop any modifications to disk image file or device, 
+while keeping client to work with it as usual (may be only a bit slower than 
+usual). When received 'freeze' signal AoEde flushes all its internal buffers 
+and begin functioning in special freezed mode until gets 'unfreeze' signal. 
+Also you should specify temporary shadow file, where all writes will go instead 
+while actual image remains 'freeze'-d. Use option -f for that, like:
+aoede -b 64 1 1 egiga0 /var/.AOE/disk11.fs -f /var/.AOE/shadow11.fs
+Also make sure that shadow file located on filesystem that supports sparse files, 
+otherwise it will instantly occupy a bit more space than size of main image.
+How to freeze/unfreeze? Very simple. Use kill for that:
+freeze:
+kill -USR1 ${AOEDE_PID}
+kill -USR2 ${AOEDE_PID}
+unfreeze:
+kill -USR1 ${AOEDE_PID}
+kill -USR1 ${AOEDE_PID}
+kill -USR2 ${AOEDE_PID}
+Note that freezing/unfreezing doesn't performed instantly. So after sending freeze 
+sequence wait until AoEde will create shadow file. And after sending unfreeze - 
+wait until that file will be removed.
+Unfreezing flushes written data to main image 'in background', without stopping 
+serving initiator requests. However this process noticeable decreases performance 
+until finishes. 
+
+
+Multiple interfaces support
+---------------------------
+
+If you want to use AoEde with more than singke network interface you should build it 
+with MAX_NICS (in tuneup.h) undefined or set to planned maximum interfaces count.
+Then you should launch it specifying  all interfaces is command line, for example:
+aoede 1 4 eth0 eth1 /data/AOE.fs
+Note that launching several instances of aoede per single file (like it was possible 
+with vblade) is not supported due to AoEde has own userspace buffering.
+
